@@ -1,5 +1,6 @@
 /* General form styling */
-.hbi-booking-form {
+.hbi-booking-form,
+#hall-booking-form {
     background: #fff;
     padding: 20px;
     border-radius: 10px;
@@ -8,7 +9,8 @@
     margin: 0 auto;
 }
 
-.hbi-booking-form label {
+.hbi-booking-form label,
+#hall-booking-form label {
     font-weight: 600;
     margin-bottom: 6px;
     display: block;
@@ -16,7 +18,10 @@
 
 .hbi-booking-form input,
 .hbi-booking-form select,
-.hbi-booking-form textarea {
+.hbi-booking-form textarea,
+#hall-booking-form input,
+#hall-booking-form select,
+#hall-booking-form textarea {
     width: 100%;
     padding: 8px 10px;
     margin-bottom: 15px;
@@ -24,28 +29,85 @@
     border-radius: 6px;
 }
 
-/* Toggle sections */
-.hbi-tariff-section {
+/* Collapsible Section Styling */
+.hbi-collapsible {
     border: 1px solid #ddd;
     margin-bottom: 15px;
     border-radius: 6px;
+    background: #f7f7f7;
 }
-
-.hbi-tariff-section .hbi-toggle {
-    background: #f6f6f6;
-    padding: 10px;
-    cursor: pointer;
+.hbi-collapsible legend {
+    background: #e6e6e6;
+    font-size: 1.1em;
     font-weight: bold;
+    padding: 10px 16px;
     border-radius: 6px 6px 0 0;
+    margin: 0;
+    display: flex;
+    align-items: center;
+}
+.hbi-collapsible .hbi-toggle {
+    background: none;
+    border: none;
+    font-size: 1.1em;
+    margin-right: 8px;
+    padding: 0;
+    color: #222;
+    cursor: pointer;
+    transition: transform 0.15s;
+    font-weight: bold;
+}
+.hbi-collapsible.expanded .hbi-toggle {
+    color: #0073aa;
 }
 
-.hbi-tariff-section .hbi-tariff-items {
-    display: none;
-    padding: 10px;
+.hbi-collapsible .hbi-toggle:focus {
+    outline: 2px solid #0073aa;
 }
 
-.hbi-tariff-section.open .hbi-tariff-items {
-    display: block;
+.hbi-collapsible .hbi-collapsible-content {
+    padding: 12px 16px;
+    background: #fff;
+    border-radius: 0 0 6px 6px;
+}
+
+/* Tariff Table Styling */
+.hbi-tariffs table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.5em;
+}
+.hbi-tariffs th, .hbi-tariffs td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
+.hbi-tariffs th {
+    background: #f4f4f4;
+    font-weight: bold;
+    font-size: 1em;
+}
+
+.hbi-tariffs fieldset legend {
+    font-size: 1.15em;
+    font-weight: bold;
+    padding: 10px 16px;
+    background: #e6e6e6;
+    border-radius: 6px 6px 0 0;
+    margin-bottom: 0;
+}
+
+/* Deposit summary */
+.deposit-row {
+    border: 1px solid #eee;
+    border-radius: 4px;
+    background: #f9f9f9;
+    padding: 6px 12px;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 500;
 }
 
 /* Quantity controls */
@@ -75,6 +137,54 @@
 }
 
 /* Multi-day toggle */
-#hbi-end-date-wrapper {
+#hbi_end_date_wrap {
     display: none;
+}
+
+/* Responsive tweaks */
+@media (max-width: 600px) {
+    .hbi-booking-form,
+    #hall-booking-form {
+        padding: 8px;
+        max-width: 100%;
+    }
+    .hbi-tariffs table,
+    .hbi-tariffs th,
+    .hbi-tariffs td {
+        padding: 6px 5px;
+        font-size: 0.95em;
+    }
+    .deposit-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* Fix checkbox label alignment for flex layouts */
+#hall-booking-form input[type="checkbox"] + label,
+.hbi-booking-form input[type="checkbox"] + label {
+    display: inline-block;
+    margin-left: 8px;
+    margin-bottom: 0;
+    vertical-align: middle;
+    width: auto;
+    font-weight: 600;
+}
+
+#hall-booking-form .checkbox-row,
+.hbi-booking-form .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+/* Prevent checkbox labels from going outside the form */
+#hall-booking-form label[for="hbi_event_privacy"],
+#hall-booking-form label[for="hbi_multi_day"] {
+    margin-left: 8px;
+    margin-bottom: 0;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
 }
