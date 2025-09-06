@@ -138,9 +138,48 @@ $event_id = wp_insert_post(array(
         '_event_guest_count'=> $guest_count,
         '_event_privacy'    => $event_privacy,
         '_event_title'      => $event_title,
+        
     ),
 ));
+// Map 'space' -> location_type & location (Events Manager expects these meta keys in many setups)
+$space_to_location = array(
+    'Main Hall'    => array('location_type' => 'location', 'location' => '1', 'category' => 'main-hall-booking'),
+    'Meeting Room' => array('location_type' => 'location', 'location' => '4', 'category' => 'meeting-room-booking'),
+    'Both Spaces'  => array('location_type' => 'location', 'location' => '3', 'category' => 'both-spaces-booking'),
+);
 
+$space_key = isset($space) ? $space : '';
+if ( isset( $space_to_location[$space_key] ) ) {
+    $map = $space_to_location[$space_key];
+
+// Save EM-compatible meta so EM's location logic can pick it up
+// Events Manager requires linking to an actual Location post via _location_id
+$location_id = intval( $map['location'] ); // must be a post ID of a Location CPT
+update_post_meta( $event_id, '_location_id', $location_id );
+
+// Keep plugin-specific fallbacks (not used by EM directly, but handy for your CPT)
+update_post_meta( $event_id, '_hbi_location_type', sanitize_text_field( $map['location_type'] ) );
+update_post_meta( $event_id, '_hbi_location', $location_id );
+
+    // Assign event category (taxonomy). Try EM taxonomy 'event-categories' first, but also attempt 'event-category' fallback.
+    $term_slug = sanitize_title( $map['category'] );
+    if ( taxonomy_exists( 'event-categories' ) ) {
+        wp_set_object_terms( $event_id, $term_slug, 'event-categories', true );
+    } elseif ( taxonomy_exists( 'event_category' ) ) {
+        wp_set_object_terms( $event_id, $term_slug, 'event_category', true );
+    } else {
+        // fallback — store as meta too
+        update_post_meta( $event_id, '_event_category', $term_slug );
+    }
+}
+
+// Ensure comments are disabled on event
+wp_update_post( array( 'ID' => $event_id, 'comment_status' => 'closed' ) );
+
+// Save privacy flag (from the form checkbox)
+$privacy_flag = ! empty( $_POST['hbi_event_privacy'] ) ? 1 : 0;
+update_post_meta( $event_id, '_event_private', $privacy_flag );   // EM common key
+update_post_meta( $event_id, '_hbi_event_private', $privacy_flag ); // plugin specific
         if ( ! $event_id ) {
             wp_die( 'Error saving event in Events Manager.' );
         }
