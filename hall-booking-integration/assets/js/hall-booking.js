@@ -1,22 +1,25 @@
 jQuery(document).ready(function ($) {
-    // --- Multi-day logic
-    function updateMultiDay() {
-        if ($('#hbi_multi_day').is(':checked')) {
-            $('#hbi_end_date_wrap').show();
-        } else {
-            $('#hbi_end_date_wrap').hide();
-            $('#hbi_end_date').val($('#hbi_start_date').val());
-        }
-        autofillHallHireRates();
+// --- Multi-day logic
+function updateMultiDay() {
+    if ($('#hbi_multi_day').val() == '1') {
+        $('#hbi_end_date_wrap').show();
+    } else {
+        $('#hbi_end_date_wrap').hide();
+        $('#hbi_end_date').val($('#hbi_start_date').val());
     }
-    $('#hbi_multi_day').on('change', updateMultiDay);
-    $('#hbi_start_date').on('change', function () {
-        if (!$('#hbi_multi_day').is(':checked')) {
-            $('#hbi_end_date').val($(this).val());
-        }
-        autofillHallHireRates();
-    });
-    updateMultiDay();
+    autofillHallHireRates();
+}
+
+$('#hbi_multi_day').on('change', updateMultiDay);
+
+$('#hbi_start_date').on('change', function () {
+    if ($('#hbi_multi_day').val() != '1') {
+        $('#hbi_end_date').val($(this).val());
+    }
+    autofillHallHireRates();
+});
+
+updateMultiDay();
 
     // --- Custom hours logic
     $('#hbi_event_time').on('change', function () {
@@ -126,80 +129,81 @@ jQuery(document).ready(function ($) {
         $('#quote-total').text('R ' + total.toFixed(2));
     }
 
-    // --- Hall Hire autofill logic
-    function autofillHallHireRates() {
-        var space = $('#hbi_space').val();
-        var time = $('#hbi_event_time').val();
-        var startDate = $('#hbi_start_date').val();
-        var endDate = $('#hbi_multi_day').is(':checked') ? $('#hbi_end_date').val() : startDate;
-        var days = (startDate && endDate) ? Math.max(1, Math.floor((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) + 1) : 1;
-        var mainHallDayRateLabel = "Rate per day up to 24h00";
-        var mainHallHourFirstLabel = "Rate per hour: for 1st hour";
-        var mainHallHourAfterLabel = "Rate per hour: after 1st hour";
+// --- Hall Hire autofill logic
+function autofillHallHireRates() {
+    var space = $('#hbi_space').val();
+    var time = $('#hbi_event_time').val();
+    var startDate = $('#hbi_start_date').val();
+    // FIXED: Changed from .is(':checked') to .val() == '1'
+    var endDate = $('#hbi_multi_day').val() == '1' ? $('#hbi_end_date').val() : startDate;
+    var days = (startDate && endDate) ? Math.max(1, Math.floor((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) + 1) : 1;
+    var mainHallDayRateLabel = "Rate per day up to 24h00";
+    var mainHallHourFirstLabel = "Rate per hour: for 1st hour";
+    var mainHallHourAfterLabel = "Rate per hour: after 1st hour";
 
-        // Reset Hall Hire checkboxes/qty
-        $('.tariff-row[data-category="Hall Hire Rate"]').each(function () {
-            var $cb = $(this).find('.tariff-item');
-            var $qtyInput = $(this).find('.tariff-qty');
-            $cb.prop('checked', false);
-            if ($qtyInput.length) $qtyInput.val("0").prop('disabled', true);
-        });
+    // Reset Hall Hire checkboxes/qty
+    $('.tariff-row[data-category="Hall Hire Rate"]').each(function () {
+        var $cb = $(this).find('.tariff-item');
+        var $qtyInput = $(this).find('.tariff-qty');
+        $cb.prop('checked', false);
+        if ($qtyInput.length) $qtyInput.val("0").prop('disabled', true);
+    });
 
-        if (space === "Main Hall" || space === "Both Spaces") {
-            if (time === "Full Day") {
-                $('.tariff-row[data-label="' + mainHallDayRateLabel + '"]').each(function () {
+    if (space === "Main Hall" || space === "Both Spaces") {
+        if (time === "Full Day") {
+            $('.tariff-row[data-label="' + mainHallDayRateLabel + '"]').each(function () {
+                var $cb = $(this).find('.tariff-item');
+                var $qtyInput = $(this).find('.tariff-qty');
+                $cb.prop('checked', true);
+                if ($qtyInput.length) $qtyInput.val(days.toString()).prop('disabled', false);
+            });
+        } else if (time === "Morning" || time === "Afternoon" || time === "Evening") {
+            var duration = 0;
+            if (time === "Morning") { duration = 4; }
+            if (time === "Afternoon") { duration = 5; }
+            if (time === "Evening") { duration = 6; }
+            var totalFirstHour = days;
+            var totalAfterHour = (duration > 1) ? (days * (duration - 1)) : 0;
+            $('.tariff-row[data-label="' + mainHallHourFirstLabel + '"]').each(function () {
+                var $cb = $(this).find('.tariff-item');
+                var $qtyInput = $(this).find('.tariff-qty');
+                $cb.prop('checked', true);
+                if ($qtyInput.length) $qtyInput.val(totalFirstHour.toString()).prop('disabled', false);
+            });
+            if (totalAfterHour > 0) {
+                $('.tariff-row[data-label="' + mainHallHourAfterLabel + '"]').each(function () {
                     var $cb = $(this).find('.tariff-item');
                     var $qtyInput = $(this).find('.tariff-qty');
                     $cb.prop('checked', true);
-                    if ($qtyInput.length) $qtyInput.val(days.toString()).prop('disabled', false);
+                    if ($qtyInput.length) $qtyInput.val(totalAfterHour.toString()).prop('disabled', false);
                 });
-            } else if (time === "Morning" || time === "Afternoon" || time === "Evening") {
-                var duration = 0;
-                if (time === "Morning") { duration = 4; }
-                if (time === "Afternoon") { duration = 5; }
-                if (time === "Evening") { duration = 6; }
-                var totalFirstHour = days;
-                var totalAfterHour = (duration > 1) ? (days * (duration - 1)) : 0;
-                $('.tariff-row[data-label="' + mainHallHourFirstLabel + '"]').each(function () {
+            }
+        } else if (time === "Custom") {
+            var customStart = parseInt($('#hbi_custom_start').val() || "8");
+            var customEnd = parseInt($('#hbi_custom_end').val() || "9");
+            if (customEnd <= customStart) customEnd += 24;
+            var duration = customEnd - customStart;
+            var totalFirstHour = days;
+            var totalAfterHour = (duration > 1) ? (days * (duration - 1)) : 0;
+            $('.tariff-row[data-label="' + mainHallHourFirstLabel + '"]').each(function () {
+                var $cb = $(this).find('.tariff-item');
+                var $qtyInput = $(this).find('.tariff-qty');
+                $cb.prop('checked', true);
+                if ($qtyInput.length) $qtyInput.val(totalFirstHour.toString()).prop('disabled', false);
+            });
+            if (totalAfterHour > 0) {
+                $('.tariff-row[data-label="' + mainHallHourAfterLabel + '"]').each(function () {
                     var $cb = $(this).find('.tariff-item');
                     var $qtyInput = $(this).find('.tariff-qty');
                     $cb.prop('checked', true);
-                    if ($qtyInput.length) $qtyInput.val(totalFirstHour.toString()).prop('disabled', false);
+                    if ($qtyInput.length) $qtyInput.val(totalAfterHour.toString()).prop('disabled', false);
                 });
-                if (totalAfterHour > 0) {
-                    $('.tariff-row[data-label="' + mainHallHourAfterLabel + '"]').each(function () {
-                        var $cb = $(this).find('.tariff-item');
-                        var $qtyInput = $(this).find('.tariff-qty');
-                        $cb.prop('checked', true);
-                        if ($qtyInput.length) $qtyInput.val(totalAfterHour.toString()).prop('disabled', false);
-                    });
-                }
-            } else if (time === "Custom") {
-                var customStart = parseInt($('#hbi_custom_start').val() || "8");
-                var customEnd = parseInt($('#hbi_custom_end').val() || "9");
-                if (customEnd <= customStart) customEnd += 24;
-                var duration = customEnd - customStart;
-                var totalFirstHour = days;
-                var totalAfterHour = (duration > 1) ? (days * (duration - 1)) : 0;
-                $('.tariff-row[data-label="' + mainHallHourFirstLabel + '"]').each(function () {
-                    var $cb = $(this).find('.tariff-item');
-                    var $qtyInput = $(this).find('.tariff-qty');
-                    $cb.prop('checked', true);
-                    if ($qtyInput.length) $qtyInput.val(totalFirstHour.toString()).prop('disabled', false);
-                });
-                if (totalAfterHour > 0) {
-                    $('.tariff-row[data-label="' + mainHallHourAfterLabel + '"]').each(function () {
-                        var $cb = $(this).find('.tariff-item');
-                        var $qtyInput = $(this).find('.tariff-qty');
-                        $cb.prop('checked', true);
-                        if ($qtyInput.length) $qtyInput.val(totalAfterHour.toString()).prop('disabled', false);
-                    });
-                }
             }
         }
-        updateDepositSummary();
-        updateTotal();
     }
+    updateDepositSummary();
+    updateTotal();
+}
 
     $('#hbi_space').on('change', autofillHallHireRates);
     $('#hbi_start_date, #hbi_end_date').on('change', autofillHallHireRates);
