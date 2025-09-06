@@ -121,7 +121,7 @@ class HBI_Booking_Handler {
         }
 
         // Format booking title
-        $title = sprintf( 'Booking: %s (%s)', $name, $start_date );
+        $title = sprintf( $event_title );
 
         // Step 1: Create draft Event in Events Manager (or WP event CPT)
 $event_id = wp_insert_post(array(
