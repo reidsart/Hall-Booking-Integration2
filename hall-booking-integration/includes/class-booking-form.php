@@ -232,9 +232,22 @@ class HBI_Booking_Form {
                     <?php endif; ?>
                 <?php endforeach; ?>
             </div>
-            <div id="deposit-summary" style="margin-top:18px;"></div>
-            <div style="text-align:right;font-size:1.2em;">
-                <strong>Total: <span id="quote-total">R 0.00</span></strong>
+            <!-- Subtotal and deposits display -->
+            <div style="text-align:right; font-size:1.1em; margin-top: 15px;">
+                <div style="margin-bottom: 8px;">
+                    <strong>Subtotal: <span id="quote-subtotal">R 0.00</span></strong>
+                </div>
+                
+                <!-- Deposits section -->
+                <div id="deposit-summary" style="margin: 10px 0; font-size: 0.95em;"></div>
+                
+                <!-- Solid line above total -->
+                <hr style="border: none; border-top: 2px solid #1e4f91; margin: 10px 0; width: 200px; margin-left: auto;">
+                
+                <!-- Final total -->
+                <div style="font-size: 1.2em;">
+                    <strong>Total: <span id="quote-total">R 0.00</span></strong>
+                </div>
             </div>
             <button type="submit" class="button button-primary" style="margin-top:20px;">Submit Booking Request</button>
         </form>
