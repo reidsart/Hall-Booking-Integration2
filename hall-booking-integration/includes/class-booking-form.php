@@ -52,17 +52,21 @@ class HBI_Booking_Form {
 
             <label for="hbi_phone">Phone Number *</label>
             <input type="text" name="hbi_phone" id="hbi_phone" required>
-
+ 
             <div style="display:flex; gap:24px;">
-                <div style="flex:2;">
+                <div style="flex:1;">
                     <label>Event Title*</label>
                     <input type="text" name="hbi_event_title" required style="width:100%;">
                 </div>
-                <div style="flex:1; display:flex; align-items:center; gap:8px;">
-                    <input type="checkbox" name="hbi_event_privacy" id="hbi_event_privacy" value="private" style="margin-top:0;">
-                    <label for="hbi_event_privacy" style="margin-bottom:0;">Private Event</label>
+                <div style="flex:1;">
+                    <label>Privacy Setting</label>
+                    <select name="hbi_event_privacy" id="hbi_event_privacy" required style="width:100%;">
+                        <option value="public">Public Event</option>
+                        <option value="private">Private Event</option>
+                    </select>
                 </div>
             </div>
+                    
             <label>Event Description</label>
             <textarea name="hbi_event_description" style="width:100%;"></textarea>
             <div style="display:flex; gap:24px;">
@@ -80,20 +84,27 @@ class HBI_Booking_Form {
                 </div>
             </div>
             <div style="height:12px;"></div>
-            <div style="display:flex; gap:24px; align-items:center;">
-                <div style="flex:1;">
-                    <label>Event Start Date*</label>
-                    <input type="date" name="hbi_start_date" id="hbi_start_date" required style="width:100%;">
-                </div>
-                <div style="flex:1; display:flex; align-items:center;">
-                    <input type="checkbox" id="hbi_multi_day" name="hbi_multi_day" value="1" style="margin-top:0;">
-                    <label for="hbi_multi_day" style="margin-bottom:0; margin-left:5px;">Multi-day event?</label>
-                </div>
-                <div style="flex:1;" id="hbi_end_date_wrap">
-                    <label>Event End Date*</label>
-                    <input type="date" name="hbi_end_date" id="hbi_end_date" style="width:100%;">
-                </div>
-            </div>
+            
+<div style="display:flex; gap:24px; align-items:center;">
+    <div style="flex:1;">
+        <label>Event Start Date*</label>
+        <input type="date" name="hbi_start_date" id="hbi_start_date" required style="width:100%;">
+    </div>
+    
+    <div style="flex:1;">
+        <label>Duration</label>
+        <select name="hbi_multi_day" id="hbi_multi_day" required style="width:100%;">
+            <option value="0">One day</option>
+            <option value="1">Multi-day event</option>
+        </select>
+    </div>
+    
+    <div style="flex:1;" id="hbi_end_date_wrap">
+        <label>Event End Date*</label>
+        <input type="date" name="hbi_end_date" id="hbi_end_date" style="width:100%;">
+    </div>
+</div>
+            
             <div style="height:12px;"></div>
             <div style="display:flex; gap:24px;">
                 <div style="flex:1;">
@@ -225,11 +236,145 @@ class HBI_Booking_Form {
         var mainHallDepositPrice = <?php echo json_encode($main_hall_deposit_price); ?>;
         var crockeryDepositPrice = <?php echo json_encode($crockery_deposit_price); ?>;
         </script>
-        <style>
-        .hbi-collapsible .hbi-collapsible-content { display: none; }
-        .hbi-collapsible.expanded .hbi-collapsible-content { display: block; }
-        .hbi-collapsible .hbi-toggle { font-size: 1em; background: none; border: none; padding: 0; }
-        </style>
+<style>
+.hbi-collapsible .hbi-collapsible-content { 
+    display: none; 
+}
+.hbi-collapsible.expanded .hbi-collapsible-content { 
+    display: block; 
+}
+.hbi-collapsible .hbi-toggle { 
+    font-size: 1.1rem;
+    background: #1e4f91;
+    color: #fff;
+    border: none;
+    padding: 12px 16px;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.3s ease;
+}
+.hbi-collapsible .hbi-toggle:hover {
+    background: #2360b0;
+}
+.hbi-collapsible {
+    border: none;
+    margin: 10px 0;
+    padding: 0;
+}
+.hbi-collapsible legend {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+/* ADD THE NEW SUBMIT BUTTON STYLES HERE: */
+#hall-booking-form {
+    text-align: left;
+}
+
+#hall-booking-form button[type="submit"] {
+    display: block;
+    margin: 20px auto 0 auto;
+    background: #28a745 !important;
+    color: #fff !important;
+    padding: 12px 30px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: none !important;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+}
+
+#hall-booking-form button[type="submit"]:hover {
+    background: #218838 !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(40, 167, 69, 0.4);
+}
+
+#hall-booking-form button[type="submit"]:active {
+    background: #1e7e34 !important;
+    transform: translateY(0);
+}
+
+/* ADD THIS CSS TO YOUR EXISTING <style> SECTION IN THE PHP FORM */
+
+/* Style all fieldsets with light blue backgrounds */
+fieldset {
+    background: #f0f7ff !important; /* Light blue background */
+    border: 1px solid #c3d9f5 !important;
+    border-radius: 8px !important;
+    margin: 15px 0 !important;
+    padding: 0 !important;
+}
+
+/* Style all fieldset legends (including Hall Hire Rate) */
+fieldset legend {
+    background: #1e4f91 !important; /* Dark blue like collapsible headers */
+    color: #fff !important;
+    padding: 12px 16px !important;
+    margin: 0 !important;
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    border-radius: 8px 8px 0 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    border: none !important;
+}
+
+/* Content inside fieldsets */
+fieldset table {
+    margin: 15px !important;
+    background: transparent !important;
+}
+
+/* Make collapsible sections match the new styling */
+.hbi-collapsible {
+    background: #f0f7ff !important; /* Light blue background */
+    border: 1px solid #c3d9f5 !important;
+    border-radius: 8px !important;
+    margin: 15px 0 !important;
+    padding: 0 !important;
+}
+
+/* Collapsible content area */
+.hbi-collapsible-content {
+    background: #f0f7ff !important; /* Light blue background */
+    border: none !important;
+    border-radius: 0 0 8px 8px !important;
+    padding: 15px !important;
+}
+
+/* Ensure tables look good on light blue background */
+.hbi-collapsible-content table,
+fieldset table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    background: transparent !important;
+}
+
+/* Style table rows for better visibility */
+.hbi-collapsible-content table tr,
+fieldset table tr {
+    border-bottom: 1px solid #d6e8f5 !important;
+}
+
+/* Make checkboxes and inputs more visible */
+.hbi-collapsible-content input[type="checkbox"],
+fieldset input[type="checkbox"] {
+    margin-right: 8px !important;
+}
+
+.hbi-collapsible-content input[type="number"],
+fieldset input[type="number"] {
+    background: #fff !important;
+    border: 1px solid #c3d9f5 !important;
+}
+
+</style>
         <?php
         return ob_get_clean();
     }
