@@ -39,8 +39,8 @@ class HBI_Booking_Form {
         ob_start(); ?>
         <form id="hall-booking-form" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
             <input type="hidden" name="action" value="hbi_process_booking">
-
-            <h3>Contact Information</h3>
+             <hr class="section-divider">
+            <h3>CONTACT INFORMATION</h3>
             <label for="hbi_name">Your Name *</label>
             <input type="text" name="hbi_name" id="hbi_name" required>
 
@@ -52,7 +52,10 @@ class HBI_Booking_Form {
 
             <label for="hbi_phone">Phone Number *</label>
             <input type="text" name="hbi_phone" id="hbi_phone" required>
- 
+            
+             <hr class="section-divider">
+                
+            <h3>EVENT DETAILS</h3>
             <div style="display:flex; gap:24px;">
                 <div style="flex:1;">
                     <label>Event Title*</label>
@@ -134,7 +137,10 @@ class HBI_Booking_Form {
             </div>
             <div style="height:12px;"></div>
 
-            <h3>Quote & Tariff Selection</h3>
+<hr class="section-divider">
+
+
+            <h3>QUOTE & TARIFF SELECTION</h3>
             <div class="hbi-tariffs">
                 <?php foreach ($tariffs as $category => $items): ?>
                     <?php if (strtolower($category) === 'hall hire rate'): ?>
@@ -372,6 +378,24 @@ fieldset input[type="checkbox"] {
 fieldset input[type="number"] {
     background: #fff !important;
     border: 1px solid #c3d9f5 !important;
+}
+
+.section-divider {
+    border: none;
+    height: 5px;
+    background: linear-gradient(to right, transparent, #c3d9f5 20%, #c3d9f5 80%, transparent);
+    margin: 30px 0;
+    border-radius: 2px;
+}
+
+/* Style the main section headings */
+#hall-booking-form h3 {
+    color: #0693E3 !important;
+    font-weight: bold !important;
+    font-size: 1.3rem !important;
+    margin: 20px 0 15px 0 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
 }
 
 </style>
