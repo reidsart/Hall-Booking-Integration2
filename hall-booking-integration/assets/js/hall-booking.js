@@ -46,29 +46,43 @@ updateMultiDay();
         return false;
     });
 
-    // --- Tariff selection and quantity
-    $('.tariff-item').on('change', function () {
-        var $row = $(this).closest('.tariff-row');
-        var $qtyInput = $row.find('.tariff-qty');
-        var $staticQty = $row.find('.static-qty-display');
-        if ($(this).prop('checked')) {
-            if ($qtyInput.length) {
-                $qtyInput.val("1").prop('disabled', false);
-            }
-            if ($staticQty.length) {
-                $staticQty.text("1");
-            }
-        } else {
-            if ($qtyInput.length) {
-                $qtyInput.val("0").prop('disabled', true);
-            }
-            if ($staticQty.length) {
-                $staticQty.text("0");
-            }
+// --- Tariff selection and quantity
+$('.tariff-item').on('change', function () {
+    var $row = $(this).closest('.tariff-row');
+    var $qtyInput = $row.find('.tariff-qty');
+    var $staticQty = $row.find('.static-qty-display');
+    var $barDisplay = $row.find('.bar-display');
+    var $barQty = $row.find('.bar-qty');
+    var label = $(this).data('label') || '';
+    
+    if ($(this).prop('checked')) {
+        if ($qtyInput.length) {
+            $qtyInput.val("1").prop('disabled', false);
         }
-        updateDepositSummary();
-        updateTotal();
-    });
+        if ($staticQty.length) {
+            $staticQty.text("1");
+        }
+        // Handle bar service
+        if ($barDisplay.length && label.toLowerCase().indexOf('bar service') !== -1) {
+            $barDisplay.text("Yes").css({'background': '#e8f5e8', 'color': '#2e7d2e'});
+            $barQty.val("1");
+        }
+    } else {
+        if ($qtyInput.length) {
+            $qtyInput.val("0").prop('disabled', true);
+        }
+        if ($staticQty.length) {
+            $staticQty.text("0");
+        }
+        // Handle bar service
+        if ($barDisplay.length && label.toLowerCase().indexOf('bar service') !== -1) {
+            $barDisplay.text("No").css({'background': '#f0f0f0', 'color': '#666'});
+            $barQty.val("0");
+        }
+    }
+    updateDepositSummary();
+    updateTotal();
+});
     $('.crockery-qty').on('input', function () {
         updateDepositSummary();
         updateTotal();
@@ -178,8 +192,8 @@ function autofillHallHireRates() {
         if ($qtyInput.length) $qtyInput.val("0").prop('disabled', true);
     });
 
-    // Only proceed if Main Hall is selected
-    if (space === "Main Hall" || space === "Both Spaces") {
+    // Only proceed if Main Hall, Meeting Room, or Both Spaces is selected
+    if (space === "Main Hall" || space === "Meeting Room" || space === "Both Spaces") {
         if (time === "Full Day") {
             // FULL DAY: Only use daily rate, ensure hourly rates are 0
             $('.tariff-row[data-label="' + mainHallDayRateLabel + '"]').each(function () {
