@@ -12,6 +12,11 @@ class HBI_Invoices {
     public function __construct() {
         add_action( 'init', array( $this, 'register_invoice_cpt' ) );
         add_action( 'save_post_hbi_invoice', array( $this, 'assign_invoice_number' ), 10, 3 );
+        add_filter( 'the_content', array( $this, 'render_invoice_content' ) );
+        add_action( 'admin_post_hbi_approve_invoice', array( $this, 'handle_admin_approve_invoice' ) );
+        add_action( 'add_meta_boxes', array( $this, 'register_invoice_meta_box' ) );
+        add_action( 'add_meta_boxes', array( $this, 'register_invoice_details_box' ) );
+        add_action( 'save_post_hbi_invoice', array( $this, 'save_invoice_details' ) );
     }
 
     /**
@@ -71,73 +76,343 @@ class HBI_Invoices {
     /**
      * Generate PDF Invoice using TCPDF
      */
+    /**
+     * Generate PDF Invoice using TCPDF
+     */
     public static function generate_pdf( $invoice_id ) {
-        if ( ! class_exists( 'TCPDF' ) ) {
-            require_once HBI_PLUGIN_DIR . 'tcpdf/tcpdf.php'; // adjust path if different
-        }
+        if ( ! $invoice_id ) return '';
 
+        // ===== DEBUG BLOCK =====
+        error_log("HBI DEBUG: generate_pdf called for invoice_id=" . $invoice_id);
+        $meta = get_post_meta($invoice_id);
+        error_log("HBI DEBUG: meta in generate_pdf: " . print_r($meta, true));
+        // ===== END DEBUG BLOCK =====
+
+        // ensure invoice number assigned
         $invoice_number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
-        $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
-        $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
-        $customer_phone = get_post_meta( $invoice_id, '_hbi_customer_phone', true );
-        $start_date     = get_post_meta( $invoice_id, '_hbi_start_date', true );
-        $end_date       = get_post_meta( $invoice_id, '_hbi_end_date', true );
-        $hours          = get_post_meta( $invoice_id, '_hbi_hours', true );
-        $custom_hours   = get_post_meta( $invoice_id, '_hbi_custom_hours', true );
-        $tariffs        = get_post_meta( $invoice_id, '_hbi_tariffs', true );
-        $notes          = get_post_meta( $invoice_id, '_hbi_notes', true );
-
-        $pdf = new TCPDF();
-        $pdf->SetCreator('Hall Booking Integration');
-        $pdf->SetAuthor('Sandbaai Hall Management Committee');
-        $pdf->SetTitle('Invoice ' . $invoice_number);
-        $pdf->SetMargins(20, 20, 20);
-        $pdf->AddPage();
-
-        // Logo + header
-        $logo_path = HBI_PLUGIN_DIR . 'assets/logo.png'; // you can drop your logo here
-        if ( file_exists( $logo_path ) ) {
-            $pdf->Image( $logo_path, 15, 10, 30 );
+        if ( empty( $invoice_number ) ) {
+            // ensure assignment via existing method
+            $handler = new self();
+            $handler->assign_invoice_number( $invoice_id, get_post( $invoice_id ), true );
+            $invoice_number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
         }
-        $pdf->SetFont('helvetica', 'B', 16);
-        $pdf->Cell(0, 15, 'Sandbaai Hall Management Committee', 0, 1, 'C');
 
-        $pdf->SetFont('helvetica', '', 12);
-        $pdf->Ln(10);
-        $pdf->Cell(0, 10, 'Invoice #' . $invoice_number, 0, 1);
-
-        // Customer info
-        $pdf->Cell(0, 8, 'Customer: ' . $customer_name, 0, 1);
-        $pdf->Cell(0, 8, 'Email: ' . $customer_email, 0, 1);
-        $pdf->Cell(0, 8, 'Phone: ' . $customer_phone, 0, 1);
-
-        $pdf->Ln(5);
-        $pdf->Cell(0, 8, 'Booking: ' . $start_date . ( $end_date ? ' - ' . $end_date : '' ), 0, 1);
-        $pdf->Cell(0, 8, 'Hours: ' . ( $hours === 'custom' ? $custom_hours : ucfirst($hours) ), 0, 1);
-
-        $pdf->Ln(5);
-        $pdf->Cell(0, 8, 'Tariffs:', 0, 1);
-        if ( is_array( $tariffs ) ) {
-            foreach ( $tariffs as $item => $qty ) {
-                $pdf->Cell(0, 8, ucfirst($item) . ': ' . $qty, 0, 1);
+        // Load TCPDF
+        if ( ! class_exists( 'TCPDF' ) ) {
+            $tcpdf_path = HBI_PLUGIN_DIR . 'tcpdf/tcpdf.php';
+            if ( file_exists( $tcpdf_path ) ) {
+                require_once $tcpdf_path;
+            } else {
+                return ''; // TCPDF not installed
             }
         }
 
-        if ( ! empty( $notes ) ) {
-            $pdf->Ln(5);
-            $pdf->MultiCell(0, 8, 'Notes: ' . $notes);
+        // Gather invoice data
+        $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
+        $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
+        $items          = get_post_meta( $invoice_id, '_hbi_items', true ); // array of items
+        $total          = get_post_meta( $invoice_id, '_hbi_total', true );
+        $bank_details   = get_option( 'hbi_bank_details', 'Bank: XXX, Account: YYY' );
+        $terms          = get_option( 'hbi_terms', 'Payment within 7 days. Deposit refundable as per policy.' );
+
+        // Build HTML for PDF
+        $html  = '<h1>Invoice #' . esc_html( $invoice_number ) . '</h1>';
+        $html .= '<p><strong>Customer:</strong> ' . esc_html( $customer_name ) . ' &nbsp; | &nbsp; ' . esc_html( $customer_email ) . '</p>';
+        $html .= '<table border="1" cellpadding="6" cellspacing="0" style="width:100%;border-collapse:collapse;">';
+        $html .= '<thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>';
+        if ( is_array( $items ) ) {
+            foreach ( $items as $it ) {
+                $html .= '<tr>';
+                $html .= '<td>' . esc_html( $it['label'] ) . '</td>';
+                $html .= '<td align="right">' . intval( $it['quantity'] ) . '</td>';
+                $html .= '<td align="right">R ' . number_format( floatval( $it['price'] ), 2 ) . '</td>';
+                $html .= '<td align="right">R ' . number_format( floatval( $it['subtotal'] ), 2 ) . '</td>';
+                $html .= '</tr>';
+            }
         }
+        $html .= '</tbody>';
+        $html .= '<tfoot><tr><td colspan="3" align="right"><strong>Total</strong></td><td align="right"><strong>R ' . number_format( floatval( $total ), 2 ) . '</strong></td></tr></tfoot>';
+        $html .= '</table>';
+        $html .= '<h4>Bank details</h4><p>' . nl2br( esc_html( $bank_details ) ) . '</p>';
+        $html .= '<h4>Terms</h4><p>' . nl2br( esc_html( $terms ) ) . '</p>';
 
-        $upload_dir = wp_upload_dir();
-        $file_path  = $upload_dir['basedir'] . '/invoices/invoice-' . $invoice_number . '.pdf';
+        // Generate PDF
+        try {
+            $pdf = new TCPDF( 'P', 'mm', 'A4', true, 'UTF-8', false );
+            $pdf->SetCreator( 'Sandbaai Hall' );
+            $pdf->SetAuthor( 'Sandbaai Hall Management Committee' );
+            $pdf->SetTitle( 'Invoice #' . $invoice_number );
+            $pdf->SetMargins( 15, 15, 15 );
+            $pdf->AddPage();
+            $pdf->writeHTML( $html, true, false, true, false, '' );
 
-        // Ensure folder exists
-        if ( ! file_exists( dirname( $file_path ) ) ) {
-            wp_mkdir_p( dirname( $file_path ) );
+            // Save to uploads/hall-invoices/
+            $upload_dir = wp_upload_dir();
+            $dir = trailingslashit( $upload_dir['basedir'] ) . 'hall-invoices';
+            if ( ! file_exists( $dir ) ) wp_mkdir_p( $dir );
+            $filename = 'invoice-' . $invoice_number . '.pdf';
+            $path = trailingslashit( $dir ) . $filename;
+
+            $pdf->Output( $path, 'F' );
+
+            $public_url = trailingslashit( $upload_dir['baseurl'] ) . 'hall-invoices/' . $filename;
+            update_post_meta( $invoice_id, '_hbi_pdf_url', $public_url );
+            update_post_meta( $invoice_id, '_hbi_pdf_path', $path );
+
+            return $public_url;
+        } catch ( Exception $e ) {
+            error_log( 'HBI PDF error: ' . $e->getMessage() );
+            return '';
         }
-
-        $pdf->Output( $file_path, 'F' );
-
-        return $upload_dir['baseurl'] . '/invoices/invoice-' . $invoice_number . '.pdf';
     }
+    
+    /**
+ * Register editable invoice details box
+ */
+public function register_invoice_details_box() {
+    add_meta_box(
+        'hbi_invoice_details',
+        'Invoice Details',
+        array( $this, 'render_invoice_details_box' ),
+        'hbi_invoice',
+        'normal',
+        'high'
+    );
+}
+
+/**
+ * Render editable invoice details
+ */
+public function render_invoice_details_box( $post ) {
+    $fields = array(
+        '_hbi_customer_name'  => 'Customer Name',
+        '_hbi_customer_email' => 'Customer Email',
+        '_hbi_customer_phone' => 'Phone',
+        '_hbi_organization'   => 'Organization',
+        '_hbi_event_title'    => 'Event Title',
+        '_hbi_space'          => 'Space',
+        '_hbi_guest_count'    => 'Guest Count',
+        '_hbi_start_date'     => 'Start Date',
+        '_hbi_end_date'       => 'End Date',
+    );
+
+    wp_nonce_field( 'hbi_invoice_details', 'hbi_invoice_details_nonce' );
+
+    echo '<table class="form-table"><tbody>';
+    foreach ( $fields as $meta_key => $label ) {
+        $val = get_post_meta( $post->ID, $meta_key, true );
+        echo '<tr>';
+        echo '<th><label for="' . esc_attr( $meta_key ) . '">' . esc_html( $label ) . '</label></th>';
+        echo '<td><input type="text" style="width:100%" id="' . esc_attr( $meta_key ) . '" name="' . esc_attr( $meta_key ) . '" value="' . esc_attr( $val ) . '"></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+
+    // Line items
+    $items = get_post_meta( $post->ID, '_hbi_items', true );
+    if ( !is_array($items) ) $items = [];
+
+    echo '<h4>Line Items</h4>';
+    echo '<table class="widefat hbi-items-table"><thead>
+            <tr><th>Category</th><th>Label</th><th style="width:60px;">Qty</th><th style="width:80px;">Price</th><th style="width:100px;">Subtotal</th></tr>
+          </thead><tbody>';
+
+    foreach ( $items as $i => $it ) {
+        echo '<tr>';
+        echo '<td><input type="text" style="width:140px" name="hbi_items['.$i.'][category]" value="'.esc_attr($it['category']).'" /></td>';
+        echo '<td><input type="text" style="width:240px" name="hbi_items['.$i.'][label]" value="'.esc_attr($it['label']).'" /></td>';
+        echo '<td><input type="number" step="1" class="hbi-qty" style="width:60px" name="hbi_items['.$i.'][quantity]" value="'.intval($it['quantity']).'" /></td>';
+        echo '<td><input type="number" step="0.01" class="hbi-price" style="width:80px" name="hbi_items['.$i.'][price]" value="'.esc_attr($it['price']).'" /></td>';
+        echo '<td><input type="number" step="0.01" class="hbi-subtotal" style="width:100px;background:#f7f7f7;" name="hbi_items['.$i.'][subtotal]" value="'.esc_attr($it['subtotal']).'" readonly /></td>';
+        echo '</tr>';
+    }
+
+    echo '</tbody></table>';
+    echo '<p style="text-align:right;font-weight:bold;">Grand Total: R <span id="hbi-grand-total">0.00</span></p>';
+
+    // Add JS
+    ?>
+    <script>
+    jQuery(function($){
+        function recalc() {
+            let total = 0;
+            $('.hbi-items-table tbody tr').each(function(){
+                let qty = parseFloat($(this).find('.hbi-qty').val()) || 0;
+                let price = parseFloat($(this).find('.hbi-price').val()) || 0;
+                let subtotal = qty * price;
+                $(this).find('.hbi-subtotal').val(subtotal.toFixed(2));
+                total += subtotal;
+            });
+            $('#hbi-grand-total').text(total.toFixed(2));
+        }
+        $('.hbi-qty, .hbi-price').on('input', recalc);
+        recalc();
+    });
+    </script>
+    <?php
+}
+
+/**
+ * Save editable invoice details
+ */
+public function save_invoice_details( $post_id ) {
+    // Skip auto drafts
+    if ( get_post_status($post_id) === 'auto-draft' ) return;
+
+    // Check nonce if present
+    if ( isset($_POST['hbi_invoice_details_nonce']) ) {
+        if ( ! wp_verify_nonce( $_POST['hbi_invoice_details_nonce'], 'hbi_invoice_details' ) ) {
+            return;
+        }
+    }
+
+    if ( defined('DOING_AUTOSAVE') && DOING_AUTOSAVE ) return;
+    if ( ! current_user_can( 'edit_post', $post_id ) ) return;
+
+    $keys = array(
+        '_hbi_customer_name',
+        '_hbi_customer_email',
+        '_hbi_customer_phone',
+        '_hbi_organization',
+        '_hbi_event_title',
+        '_hbi_space',
+        '_hbi_guest_count',
+        '_hbi_start_date',
+        '_hbi_end_date',
+    );
+
+    foreach ( $keys as $key ) {
+        if ( isset( $_POST[$key] ) ) {
+            update_post_meta( $post_id, $key, sanitize_text_field( $_POST[$key] ) );
+        }
+    }
+
+    // Save line items + recalc total
+    $grand_total = 0;
+    if ( isset($_POST['hbi_items']) && is_array($_POST['hbi_items']) ) {
+        $items = array();
+        foreach ( $_POST['hbi_items'] as $i => $it ) {
+            $qty = intval($it['quantity'] ?? 0);
+            $price = floatval($it['price'] ?? 0);
+            $subtotal = $qty * $price;
+            $grand_total += $subtotal;
+            $items[] = array(
+                'category' => sanitize_text_field( $it['category'] ?? '' ),
+                'label'    => sanitize_text_field( $it['label'] ?? '' ),
+                'quantity' => $qty,
+                'price'    => $price,
+                'subtotal' => $subtotal,
+            );
+        }
+        update_post_meta( $post_id, '_hbi_items', $items );
+    }
+    update_post_meta( $post_id, '_hbi_total', $grand_total );
+
+    // Debug log to confirm save is running
+    error_log("✅ HBI invoice saved for post {$post_id}, total={$grand_total}");
+}
+    
+    /**
+     * Render invoice content when viewing single invoice
+     */
+    public function render_invoice_content( $content ) {
+        if ( is_singular( 'hbi_invoice' ) && in_the_loop() && is_main_query() ) {
+            global $post;
+            $pdf_url = self::generate_pdf( $post->ID );
+            if ( $pdf_url ) {
+                $content .= '<p><a href="' . esc_url( $pdf_url ) . '" target="_blank" class="button button-primary">Download Invoice PDF</a></p>';
+            } else {
+                $content .= '<p><em>Invoice PDF could not be generated.</em></p>';
+            }
+        }
+        return $content;
+    }
+    
+public function register_invoice_meta_box() {
+    add_meta_box(
+        'hbi_invoice_summary',
+        'Invoice Summary & Actions',
+        array( $this, 'render_invoice_meta_box' ),
+        'hbi_invoice',
+        'side',
+        'high'
+    );
+}
+
+public function render_invoice_meta_box( $post ) {
+    $invoice_id = $post->ID;
+    $name = get_post_meta( $invoice_id, '_hbi_customer_name', true );
+    $email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
+    $number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
+    $total = get_post_meta( $invoice_id, '_hbi_total', true );
+    $pdf_url = get_post_meta( $invoice_id, '_hbi_pdf_url', true );
+
+    echo '<p><strong>Invoice:</strong> ' . esc_html( $number ) . '</p>';
+    echo '<p><strong>Name:</strong> ' . esc_html( $name ) . '<br>';
+    echo '<strong>Email:</strong> ' . esc_html( $email ) . '</p>';
+    echo '<p><strong>Total:</strong> R ' . number_format( floatval($total), 2 ) . '</p>';
+
+    if ( $pdf_url ) {
+        echo '<p><a href="' . esc_url( $pdf_url ) . '" target="_blank" class="button">Download PDF</a></p>';
+    }
+
+    // Approve button (nonce-protected)
+    $nonce = wp_create_nonce( 'hbi_approve_invoice_' . $invoice_id );
+    $approve_url = admin_url( 'admin-post.php?action=hbi_approve_invoice&invoice_id=' . $invoice_id . '&_wpnonce=' . $nonce );
+    echo '<p style="margin-top:10px;"><a href="' . esc_url($approve_url) . '" class="button button-primary">Approve & Send Invoice</a></p>';
+}    
+    
+/**
+ * Admin approve handler — generates PDF and emails it to customer
+ */
+public function handle_admin_approve_invoice() {
+    if ( empty( $_GET['invoice_id'] ) || empty( $_GET['_wpnonce'] ) ) {
+        wp_die( 'Invalid request.' );
+    }
+    $invoice_id = intval( $_GET['invoice_id'] );
+    if ( ! wp_verify_nonce( $_GET['_wpnonce'], 'hbi_approve_invoice_' . $invoice_id ) ) {
+        wp_die( 'Security check failed.' );
+    }
+    if ( ! current_user_can( 'edit_post', $invoice_id ) ) {
+        wp_die( 'Insufficient permissions.' );
+    }
+
+    // generate PDF and get public URL
+    $pdf_url = self::generate_pdf( $invoice_id );
+
+    // if generate_pdf returns empty, write debug and redirect back with error
+    if ( empty( $pdf_url ) ) {
+        error_log( "HBI: Failed to generate PDF for invoice $invoice_id" );
+        wp_redirect( admin_url( 'post.php?post=' . $invoice_id . '&action=edit&hbi_msg=pdf_failed' ) );
+        exit;
+    }
+
+    // Update invoice status/meta
+    update_post_meta( $invoice_id, '_hbi_pdf_url', $pdf_url );
+    update_post_meta( $invoice_id, '_hbi_pdf_generated', current_time('mysql') );
+    update_post_meta( $invoice_id, '_hbi_invoice_status', 'sent' );
+
+    // Email the customer the PDF (attach actual file if path meta exists)
+    $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
+    $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
+
+    // Try attach file if available
+    $pdf_path = get_post_meta( $invoice_id, '_hbi_pdf_path', true ); // path saved by generate_pdf()
+    $attachments = array();
+    if ( ! empty( $pdf_path ) && file_exists( $pdf_path ) ) {
+        $attachments[] = $pdf_path;
+    }
+
+    $subject = 'Sandbaai Hall — Invoice #' . get_post_meta( $invoice_id, '_hbi_invoice_number', true );
+    $message = '<p>Dear ' . esc_html( $customer_name ) . ',</p>';
+    $message .= '<p>Please find attached your invoice for the requested booking. Payment instructions are on the invoice.</p>';
+    $message .= '<p>If you have questions, reply to this email.</p>';
+    $headers = array('Content-Type: text/html; charset=UTF-8');
+
+    wp_mail( $customer_email, $subject, $message, $headers, $attachments );
+
+    // Redirect back to the invoice edit screen with success param
+    wp_redirect( admin_url( 'post.php?post=' . $invoice_id . '&action=edit&hbi_msg=sent' ) );
+    exit;
+}
 }
