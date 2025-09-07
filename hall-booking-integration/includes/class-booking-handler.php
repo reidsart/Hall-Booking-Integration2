@@ -159,14 +159,20 @@ update_post_meta( $event_id, '_hbi_location_type', sanitize_text_field( $map['lo
 update_post_meta( $event_id, '_hbi_location', $location_id );
 
     // Assign event category (taxonomy). Try EM taxonomy 'event-categories' first, but also attempt 'event-category' fallback.
-    $term_slug = sanitize_title( $map['category'] );
+    $categories_to_add = [ sanitize_title( $map['category'] ) ];
+
+    // Add "private-event" category if privacy setting is "Private Event"
+    if ( strtolower($event_privacy) === 'private' ) {
+        $categories_to_add[] = 'private-event';
+    }
+
     if ( taxonomy_exists( 'event-categories' ) ) {
-        wp_set_object_terms( $event_id, $term_slug, 'event-categories', true );
+        wp_set_object_terms( $event_id, $categories_to_add, 'event-categories', true );
     } elseif ( taxonomy_exists( 'event_category' ) ) {
-        wp_set_object_terms( $event_id, $term_slug, 'event_category', true );
+        wp_set_object_terms( $event_id, $categories_to_add, 'event_category', true );
     } else {
         // fallback — store as meta too
-        update_post_meta( $event_id, '_event_category', $term_slug );
+        update_post_meta( $event_id, '_event_category', $categories_to_add );
     }
 }
 
