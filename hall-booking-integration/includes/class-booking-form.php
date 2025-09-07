@@ -1,6 +1,6 @@
 <?php
 /**
- * Booking Form Class - FINAL WORKING DYNAMIC VERSION
+ * Booking Form Class
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
