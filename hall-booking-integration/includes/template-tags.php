@@ -74,3 +74,26 @@ function hbi_email_hours( $booking ) {
     $hours = hbi_format_booking_hours( $booking );
     return ! empty( $hours ) ? $hours : 'N/A';
 }
+
+add_filter( 'the_content', 'hbi_event_public_display_filter', 20 );
+
+function hbi_event_public_display_filter( $content ) {
+    if ( ! is_singular( 'event' ) ) {
+        return $content;
+    }
+
+    global $post;
+
+    // Admins / editors should see everything
+    if ( current_user_can( 'edit_post', $post->ID ) ) {
+        return $content;
+    }
+
+    // If event is private, replace content with "Private Event" text
+    $is_private = get_post_meta( $post->ID, '_event_private', true );
+    if ( $is_private ) {
+        return '<p class="hbi-private-event" style="color:gray;font-style:italic;">Private Event</p>';
+    }
+
+    return $content;
+}
