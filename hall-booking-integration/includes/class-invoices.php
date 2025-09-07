@@ -9,16 +9,46 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class HBI_Invoices {
 
-    public function __construct() {
-        add_action( 'init', array( $this, 'register_invoice_cpt' ) );
-        add_action( 'save_post_hbi_invoice', array( $this, 'assign_invoice_number' ), 10, 3 );
-        add_filter( 'the_content', array( $this, 'render_invoice_content' ) );
-        add_action( 'admin_post_hbi_approve_invoice', array( $this, 'handle_admin_approve_invoice' ) );
-        add_action( 'add_meta_boxes', array( $this, 'register_invoice_meta_box' ) );
-        add_action( 'add_meta_boxes', array( $this, 'register_invoice_details_box' ) );
-        add_action( 'save_post_hbi_invoice', array( $this, 'save_invoice_details' ) );
-    }
+public function __construct() {
+    add_action( 'init', array( $this, 'register_invoice_cpt' ) );
+    add_action( 'save_post_hbi_invoice', array( $this, 'assign_invoice_number' ), 10, 3 );
+    add_filter( 'the_content', array( $this, 'render_invoice_content' ) );
+    add_action( 'admin_post_hbi_approve_invoice', array( $this, 'handle_admin_approve_invoice' ) );
+    add_action( 'add_meta_boxes', array( $this, 'register_invoice_meta_boxes' ) );
+    add_action( 'save_post_hbi_invoice', array( $this, 'save_invoice_details' ) );
 
+    // AJAX handler for inline admin saving of invoices (logged-in admins only)
+    add_action( 'wp_ajax_hbi_save_invoice', array( $this, 'ajax_save_invoice' ) );
+}
+
+public function register_invoice_meta_boxes() {
+    add_meta_box(
+        'hbi_invoice_sidebar',
+        'Invoice Actions',
+        array( $this, 'render_invoice_sidebar_box' ),
+        'hbi_invoice',
+        'side',
+        'high'
+    );
+
+    add_meta_box(
+        'hbi_invoice_editor',
+        'Invoice Editor',
+        array( $this, 'render_invoice_editor_box' ),
+        'hbi_invoice',
+        'normal',
+        'high'
+    );
+
+    add_meta_box(
+        'hbi_invoice_meta',
+        'Invoice Summary',
+        array( $this, 'render_invoice_meta_box' ),
+        'hbi_invoice',
+        'side',
+        'low'
+    );
+}
     /**
      * Register the Invoice CPT
      */
@@ -308,86 +338,198 @@ public static function generate_pdf( $invoice_id ) {
 }
 
     /**
- * Register editable invoice details box
- */
-public function register_invoice_details_box() {
-    add_meta_box(
-        'hbi_invoice_details',
-        'Invoice Details',
-        array( $this, 'render_invoice_details_box' ),
-        'hbi_invoice',
-        'normal',
-        'high'
-    );
-}
+     * Render full invoice editor (customer + items + total)
+     */
+    // ... inside class HBI_Invoices ...
 
-/**
- * Render editable invoice details
- */
-public function render_invoice_details_box( $post ) {
-    $fields = array(
-        '_hbi_customer_name'  => 'Customer Name',
-        '_hbi_customer_email' => 'Customer Email',
-        '_hbi_customer_phone' => 'Phone',
-        '_hbi_organization'   => 'Organization',
-        '_hbi_event_title'    => 'Event Title',
-        '_hbi_space'          => 'Space',
-        '_hbi_guest_count'    => 'Guest Count',
-        '_hbi_start_date'     => 'Start Date',
-        '_hbi_end_date'       => 'End Date',
-    );
+public function render_invoice_editor_box( $post ) {
+    $invoice_id = $post->ID;
 
-    wp_nonce_field( 'hbi_invoice_details', 'hbi_invoice_details_nonce' );
+    // Fetch meta
+    $customer_name   = get_post_meta( $invoice_id, '_hbi_customer_name', true );
+    $customer_email  = get_post_meta( $invoice_id, '_hbi_customer_email', true );
+    $customer_phone  = get_post_meta( $invoice_id, '_hbi_customer_phone', true );
+    $organization    = get_post_meta( $invoice_id, '_hbi_organization', true );
+    $event_title     = get_post_meta( $invoice_id, '_hbi_event_title', true );
+    $event_privacy   = get_post_meta( $invoice_id, '_hbi_event_privacy', true );
+    $event_desc      = get_post_meta( $invoice_id, '_hbi_event_description', true );
+    $space           = get_post_meta( $invoice_id, '_hbi_space', true );
+    $guest_count     = get_post_meta( $invoice_id, '_hbi_guest_count', true );
+    $start_date      = get_post_meta( $invoice_id, '_hbi_start_date', true );
+    $end_date        = get_post_meta( $invoice_id, '_hbi_end_date', true );
+    $event_time      = get_post_meta( $invoice_id, '_hbi_event_time', true );
+    $custom_start    = get_post_meta( $invoice_id, '_hbi_custom_start', true );
+    $custom_end      = get_post_meta( $invoice_id, '_hbi_custom_end', true );
+    $items           = get_post_meta( $invoice_id, '_hbi_items', true );
+    if ( ! is_array( $items ) ) $items = [];
 
+    // Nonce for security
+    $nonce = wp_create_nonce( 'hbi_invoice_details_' . $invoice_id );
+
+    echo '<div class="hbi-invoice-editor" data-invoice-id="' . esc_attr($invoice_id) . '" data-nonce="' . esc_attr($nonce) . '">';
+
+    // --- Customer / Event info ---
+    echo '<h4>Customer &amp; Event Info</h4>';
     echo '<table class="form-table"><tbody>';
-    foreach ( $fields as $meta_key => $label ) {
-        $val = get_post_meta( $post->ID, $meta_key, true );
-        echo '<tr>';
-        echo '<th><label for="' . esc_attr( $meta_key ) . '">' . esc_html( $label ) . '</label></th>';
-        echo '<td><input type="text" style="width:100%" id="' . esc_attr( $meta_key ) . '" name="' . esc_attr( $meta_key ) . '" value="' . esc_attr( $val ) . '"></td>';
-        echo '</tr>';
+    echo '<tr><th>Name</th><td><input type="text" name="_hbi_customer_name" value="' . esc_attr($customer_name) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Email</th><td><input type="email" name="_hbi_customer_email" value="' . esc_attr($customer_email) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Phone</th><td><input type="text" name="_hbi_customer_phone" value="' . esc_attr($customer_phone) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Organisation</th><td><input type="text" name="_hbi_organization" value="' . esc_attr($organization) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Event Title</th><td><input type="text" name="_hbi_event_title" value="' . esc_attr($event_title) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Privacy</th><td><input type="text" name="_hbi_event_privacy" value="' . esc_attr($event_privacy) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Description</th><td><textarea name="_hbi_event_description" rows="3" style="width:100%;" class="hbi-admin-field">' . esc_textarea($event_desc) . '</textarea></td></tr>';
+    echo '<tr><th>Space</th><td><input type="text" name="_hbi_space" value="' . esc_attr($space) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Guests</th><td><input type="number" name="_hbi_guest_count" value="' . esc_attr($guest_count) . '" class="hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Start</th><td><input type="date" name="_hbi_start_date" value="' . esc_attr($start_date) . '" class="hbi-admin-field" /></td></tr>';
+    echo '<tr><th>End</th><td><input type="date" name="_hbi_end_date" value="' . esc_attr($end_date) . '" class="hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Time</th><td><input type="text" name="_hbi_event_time" value="' . esc_attr($event_time) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Custom Start</th><td><input type="text" name="_hbi_custom_start" value="' . esc_attr($custom_start) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '<tr><th>Custom End</th><td><input type="text" name="_hbi_custom_end" value="' . esc_attr($custom_end) . '" class="regular-text hbi-admin-field" /></td></tr>';
+    echo '</tbody></table>';
+
+    // --- Items ---
+    echo '<h4>Invoice Items</h4>';
+    echo '<table class="widefat striped hbi-items-table">';
+echo '<thead><tr>
+      <th>Category</th>
+      <th>Label</th>
+      <th style="width:60px;">Qty</th>
+      <th style="width:80px;">Price</th>
+      <th style="width:100px;">Subtotal</th>
+      <th style="width:48px;"></th>
+   </tr></thead><tbody>';
+
+    $total = 0;
+    foreach ( $items as $index => $it ) {
+        $cat = esc_attr( $it['category'] ?? '' );
+        $label = esc_attr( $it['label'] ?? '' );
+        $qty = intval( $it['quantity'] ?? 0 );
+        $price = floatval( $it['price'] ?? 0 );
+        $subtotal = floatval( $it['subtotal'] ?? ($qty * $price) );
+        $total += $subtotal;
+echo '<tr>';
+echo '<td><input type="text" name="_hbi_items['.$index.'][category]" value="'.$cat.'" /></td>';
+echo '<td><input type="text" name="_hbi_items['.$index.'][label]" value="'.$label.'" /></td>';
+echo '<td><input type="number" name="_hbi_items['.$index.'][quantity]" value="'.$qty.'" style="width:60px;" /></td>';
+echo '<td><input type="text" name="_hbi_items['.$index.'][price]" value="'.$price.'" style="width:80px;" /></td>';
+echo '<td class="hbi-subtotal">' . number_format($subtotal,2) . '</td>';
+echo '<td><button type="button" class="button hbi-remove-item" title="Remove">&times;</button></td>';
+echo '</tr>';
     }
     echo '</tbody></table>';
 
-    // Line items
-    $items = get_post_meta( $post->ID, '_hbi_items', true );
-    if ( !is_array($items) ) $items = [];
+    echo '<p><button type="button" class="button" id="hbi-add-item">Add Item</button></p>';
+    echo '<h4>Total: R ' . number_format( $total, 2 ) . '</h4>';
 
-    echo '<h4>Line Items</h4>';
-    echo '<table class="widefat hbi-items-table"><thead>
-            <tr><th>Category</th><th>Label</th><th style="width:60px;">Qty</th><th style="width:80px;">Price</th><th style="width:100px;">Subtotal</th></tr>
-          </thead><tbody>';
+    echo '<p><button type="button" class="button button-primary" id="hbi-save-invoice-main">Save Invoice</button> <span id="hbi-save-status" style="display:none;color:green;margin-left:10px;">Saved!</span></p>';
 
-    foreach ( $items as $i => $it ) {
-        echo '<tr>';
-        echo '<td><input type="text" style="width:140px" name="hbi_items['.$i.'][category]" value="'.esc_attr($it['category']).'" /></td>';
-        echo '<td><input type="text" style="width:240px" name="hbi_items['.$i.'][label]" value="'.esc_attr($it['label']).'" /></td>';
-        echo '<td><input type="number" step="1" class="hbi-qty" style="width:60px" name="hbi_items['.$i.'][quantity]" value="'.intval($it['quantity']).'" /></td>';
-        echo '<td><input type="number" step="0.01" class="hbi-price" style="width:80px" name="hbi_items['.$i.'][price]" value="'.esc_attr($it['price']).'" /></td>';
-        echo '<td><input type="number" step="0.01" class="hbi-subtotal" style="width:100px;background:#f7f7f7;" name="hbi_items['.$i.'][subtotal]" value="'.esc_attr($it['subtotal']).'" readonly /></td>';
-        echo '</tr>';
-    }
+    echo '</div>';
 
-    echo '</tbody></table>';
-    echo '<p style="text-align:right;font-weight:bold;">Grand Total: R <span id="hbi-grand-total">0.00</span></p>';
-
-    // Add JS
+    // --- Inline JS for dynamic subtotal + AJAX save ---
     ?>
     <script>
     jQuery(function($){
-        function recalc() {
+        // Dynamic subtotal calculation
+        function recalcInvoiceEditor() {
             let total = 0;
-            $('.hbi-items-table tbody tr').each(function(){
-                let qty = parseFloat($(this).find('.hbi-qty').val()) || 0;
-                let price = parseFloat($(this).find('.hbi-price').val()) || 0;
+            $(".hbi-invoice-editor table.hbi-items-table tbody tr").each(function(){
+                let $row = $(this);
+                let qty = parseFloat($row.find("input[name*='[quantity]']").val()) || 0;
+                let price = parseFloat($row.find("input[name*='[price]']").val()) || 0;
                 let subtotal = qty * price;
-                $(this).find('.hbi-subtotal').val(subtotal.toFixed(2));
+                $row.find(".hbi-subtotal").text(subtotal.toFixed(2));
                 total += subtotal;
             });
-            $('#hbi-grand-total').text(total.toFixed(2));
+            $(".hbi-invoice-editor h4:last").text("Total: R " + total.toFixed(2));
         }
-        $('.hbi-qty, .hbi-price').on('input', recalc);
-        recalc();
+        $(".hbi-invoice-editor").on("input", "input[name*='[quantity]'], input[name*='[price]']", function(){
+            recalcInvoiceEditor();
+        });
+        $(document).on('click', '.hbi-remove-item', function(e){
+    e.preventDefault();
+    $(this).closest('tr').remove();
+    recalcInvoiceEditor();
+});
+        $("#hbi-add-item").on("click", function(e){
+            e.preventDefault();
+            let idx = $(".hbi-invoice-editor table.hbi-items-table tbody tr").length;
+let row = "<tr>"
+    + "<td><input type='text' name='_hbi_items["+idx+"][category]' value='' /></td>"
+    + "<td><input type='text' name='_hbi_items["+idx+"][label]' value='' /></td>"
+    + "<td><input type='number' name='_hbi_items["+idx+"][quantity]' value='1' style='width:60px;' /></td>"
+    + "<td><input type='text' name='_hbi_items["+idx+"][price]' value='0.00' style='width:80px;' /></td>"
+    + "<td class='hbi-subtotal'>0.00</td>"
+    + "<td><button type='button' class='button hbi-remove-item' title='Remove'>&times;</button></td>"
+    + "</tr>";
+            $(".hbi-invoice-editor table.hbi-items-table tbody").append(row);
+            recalcInvoiceEditor();
+        });
+        recalcInvoiceEditor();
+
+        // AJAX Save
+        $('#hbi-save-invoice-main').on('click', function(e){
+            e.preventDefault();
+            var $wrap = $('.hbi-invoice-editor');
+            var invoiceId = $wrap.data('invoice-id');
+            var nonce = $wrap.data('nonce');
+            var fields = {};
+            $wrap.find('.hbi-admin-field').each(function(){
+                var name = $(this).attr('name');
+                fields[name] = $(this).val();
+            });
+            // collect items
+            var items = [];
+            $wrap.find('table.hbi-items-table tbody tr').each(function(){
+                var $row = $(this);
+                var cat = $row.find('input[name*="[category]"]').val();
+                var label = $row.find('input[name*="[label]"]').val();
+                var qty = $row.find('input[name*="[quantity]"]').val();
+                var price = $row.find('input[name*="[price]"]').val();
+                var subtotal = $row.find('td:last').text();
+                items.push({
+                    category: cat,
+                    label: label,
+                    quantity: qty,
+                    price: price,
+                    subtotal: subtotal
+                });
+            });
+            var $btn = $(this);
+            $btn.prop('disabled', true).text('Saving...');
+            $('#hbi-save-status').hide();
+            $.post(ajaxurl, {
+                action: 'hbi_save_invoice',
+                invoice_id: invoiceId,
+                nonce: nonce,
+                fields: {
+                    _hbi_customer_name: fields['_hbi_customer_name'] || '',
+                    _hbi_customer_email: fields['_hbi_customer_email'] || '',
+                    _hbi_customer_phone: fields['_hbi_customer_phone'] || '',
+                    _hbi_organization: fields['_hbi_organization'] || '',
+                    _hbi_event_title: fields['_hbi_event_title'] || '',
+                    _hbi_event_privacy: fields['_hbi_event_privacy'] || '',
+                    _hbi_event_description: fields['_hbi_event_description'] || '',
+                    _hbi_space: fields['_hbi_space'] || '',
+                    _hbi_guest_count: fields['_hbi_guest_count'] || '',
+                    _hbi_start_date: fields['_hbi_start_date'] || '',
+                    _hbi_end_date: fields['_hbi_end_date'] || '',
+                    _hbi_event_time: fields['_hbi_event_time'] || '',
+                    _hbi_custom_start: fields['_hbi_custom_start'] || '',
+                    _hbi_custom_end: fields['_hbi_custom_end'] || ''
+                },
+                items: items
+            }, function(response){
+                $btn.prop('disabled', false).text('Save Invoice');
+                if (response && response.success) {
+                    $('#hbi-save-status').show().delay(1200).fadeOut();
+                } else {
+                    alert('Save failed. Check error log.');
+                }
+            }, 'json').fail(function(){
+                $btn.prop('disabled', false).text('Save Invoice');
+                alert('AJAX error while saving.');
+            });
+        });
     });
     </script>
     <?php
@@ -452,6 +594,70 @@ public function save_invoice_details( $post_id ) {
     // Debug log to confirm save is running
     error_log("✅ HBI invoice saved for post {$post_id}, total={$grand_total}");
 }
+
+/**
+ * AJAX handler: save invoice fields & items (called by the admin meta box)
+ */
+public function ajax_save_invoice() {
+    if ( empty( $_POST['invoice_id'] ) || empty( $_POST['nonce'] ) ) {
+        wp_send_json_error( 'Missing invoice id or nonce' );
+    }
+
+    $invoice_id = intval( $_POST['invoice_id'] );
+    if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['nonce'] ) ), 'hbi_invoice_details_' . $invoice_id ) ) {
+        wp_send_json_error( 'Security check failed' );
+    }
+
+    if ( ! current_user_can( 'edit_post', $invoice_id ) ) {
+        wp_send_json_error( 'Insufficient permissions' );
+    }
+
+    // fields
+    $fields = isset( $_POST['fields'] ) && is_array( $_POST['fields'] ) ? wp_unslash( $_POST['fields'] ) : array();
+    $keys = array(
+        '_hbi_customer_name',
+        '_hbi_customer_email',
+        '_hbi_customer_phone',
+        '_hbi_organization',
+        '_hbi_event_title',
+        '_hbi_space',
+        '_hbi_guest_count',
+        '_hbi_start_date',
+        '_hbi_end_date',
+    );
+    foreach ( $keys as $k ) {
+        if ( isset( $fields[ $k ] ) ) {
+            update_post_meta( $invoice_id, $k, sanitize_text_field( $fields[ $k ] ) );
+        }
+    }
+
+    // items (array of objects)
+    $items_in = isset( $_POST['items'] ) && is_array( $_POST['items'] ) ? $_POST['items'] : array();
+    $items = array();
+    $grand_total = 0;
+    foreach ( $items_in as $it ) {
+        $cat = sanitize_text_field( $it['category'] ?? '' );
+        $label = sanitize_text_field( $it['label'] ?? '' );
+        $qty = intval( $it['quantity'] ?? 0 );
+        $price = floatval( $it['price'] ?? 0 );
+        $subtotal = floatval( $it['subtotal'] ?? ( $qty * $price ) );
+        $grand_total += $subtotal;
+        $items[] = array(
+            'category' => $cat,
+            'label'    => $label,
+            'quantity' => $qty,
+            'price'    => $price,
+            'subtotal' => $subtotal,
+        );
+    }
+    update_post_meta( $invoice_id, '_hbi_items', $items );
+    update_post_meta( $invoice_id, '_hbi_total', $grand_total );
+
+    // log for debugging
+    error_log( "HBI AJAX SAVE: invoice {$invoice_id} saved via ajax, total={$grand_total}" );
+
+    wp_send_json_success( array( 'total' => $grand_total ) );
+}
     
     /**
      * Render invoice content when viewing single invoice
@@ -469,16 +675,17 @@ public function save_invoice_details( $post_id ) {
         return $content;
     }
     
-public function register_invoice_meta_box() {
-    add_meta_box(
-        'hbi_invoice_summary',
-        'Invoice Summary & Actions',
-        array( $this, 'render_invoice_meta_box' ),
-        'hbi_invoice',
-        'side',
-        'high'
-    );
-}
+    /**
+     * Render sidebar (actions) box
+     */
+    public function render_invoice_sidebar_box( $post ) {
+        $invoice_id   = $post->ID;
+        $approve_nonce = wp_create_nonce( 'hbi_approve_invoice_' . $invoice_id );
+        $approve_url   = admin_url( 'admin-post.php?action=hbi_approve_invoice&invoice_id=' . $invoice_id . '&_wpnonce=' . $approve_nonce );
+
+        echo '<p><a href="' . esc_url( $approve_url ) . '" class="button button-primary">Approve &amp; Send Invoice</a></p>';
+        echo '<p><button type="button" class="button" id="hbi-save-invoice">Save Invoice</button></p>';
+    }
 
 public function render_invoice_meta_box( $post ) {
     $invoice_id = $post->ID;
@@ -486,29 +693,29 @@ public function render_invoice_meta_box( $post ) {
     $email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
     $number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
     $items = get_post_meta( $invoice_id, '_hbi_items', true );
+    if ( ! is_array( $items ) ) $items = array();
     $total = 0;
-    if (is_array($items)) {
-        foreach ($items as $it) {
-            $total += floatval($it['subtotal'] ?? 0);
-        }
+    foreach ( $items as $it ) {
+        $total += floatval( $it['subtotal'] ?? 0 );
     }
-    $pdf_url = get_post_meta( $invoice_id, '_hbi_pdf_url', true );
+
+    // Nonce for AJAX save (scoped to this invoice)
+    $nonce = wp_create_nonce( 'hbi_invoice_details_' . $invoice_id );
 
     echo '<p><strong>Invoice:</strong> ' . esc_html( $number ) . '</p>';
     echo '<p><strong>Name:</strong> ' . esc_html( $name ) . '<br>';
     echo '<strong>Email:</strong> ' . esc_html( $email ) . '</p>';
     echo '<p><strong>Total:</strong> R ' . number_format( floatval($total), 2 ) . '</p>';
 
+    $pdf_url = get_post_meta( $invoice_id, '_hbi_pdf_url', true );
     if ( $pdf_url ) {
-        echo '<p><a href="' . esc_url( $pdf_url ) . '" target="_blank" class="button">Download PDF</a></p>';
+        echo '<p><a href="' . esc_url( $pdf_url ) . '" target="_blank" class="button">Download Current PDF</a></p>';
     }
 
-    // Approve button (nonce-protected)
-    $nonce = wp_create_nonce( 'hbi_approve_invoice_' . $invoice_id );
-    $approve_url = admin_url( 'admin-post.php?action=hbi_approve_invoice&invoice_id=' . $invoice_id . '&_wpnonce=' . $nonce );
-    echo '<p style="margin-top:10px;"><a href="' . esc_url($approve_url) . '" class="button button-primary">Approve & Send Invoice</a></p>';
-}    
-    
+    // Approve button (unchanged)
+    $approve_nonce = wp_create_nonce( 'hbi_approve_invoice_' . $invoice_id );
+    $approve_url = admin_url( 'admin-post.php?action=hbi_approve_invoice&invoice_id=' . $invoice_id . '&_wpnonce=' . $approve_nonce );
+}
 /**
  * Admin approve handler — generates PDF and emails it to customer
  */
