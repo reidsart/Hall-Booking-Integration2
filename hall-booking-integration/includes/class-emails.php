@@ -41,16 +41,30 @@ class HBI_Emails {
     /**
      * Admin email
      */
-    private function send_admin_email( $booking ) {
-        $to      = get_option( 'admin_email' );
-        $subject = "New Hall Booking Request Submitted";
+private function send_admin_email( $booking ) {
+    $to      = 'booking@sandbaaihall.co.za';
+    $subject = "New Hall Booking Request Submitted";
 
-        $message  = "<p>A new booking request has been submitted. Details are below:</p>";
-        $message .= hbi_render_booking_summary( $booking );
-        $message .= "<p><a href='" . admin_url( 'edit.php?post_type=event' ) . "'>View in Events Manager</a></p>";
+    // Build booking summary HTML (you may re-use existing hbi_render_booking_summary)
+    $message  = "<p>A new booking request has been submitted. Details are below:</p>";
+    $message .= hbi_render_booking_summary( $booking );
 
-        $this->send_html_email( $to, $subject, $message );
+    // Draft invoice link
+    if ( isset( $booking->invoice_id ) ) {
+        $invoice_link = admin_url( 'post.php?post=' . intval($booking->invoice_id) . '&action=edit' );
+        $message .= '<p><strong>Draft Invoice:</strong> <a href="' . esc_url( $invoice_link ) . '" target="_blank">Open draft invoice</a></p>';
+
+        // One-click approve link (admin-post). This will require an action handler (see below).
+        $nonce = wp_create_nonce( 'hbi_approve_invoice_' . intval($booking->invoice_id) );
+        $approve_link = admin_url( 'admin-post.php?action=hbi_approve_invoice&invoice_id=' . intval($booking->invoice_id) . '&_wpnonce=' . $nonce );
+        $message .= '<p><a href="' . esc_url( $approve_link ) . '" style="display:inline-block;background:#1e4f91;color:#fff;padding:8px 12px;border-radius:6px;text-decoration:none;">Approve & Publish Invoice</a></p>';
     }
+
+    $message .= "<p><a href='" . admin_url( 'edit.php?post_type=event' ) . "'>View Events</a></p>";
+
+    $headers = array( 'Content-Type: text/html; charset=UTF-8' );
+    wp_mail( $to, $subject, $message, $headers );
+}
 
     /**
      * Send HTML email wrapper
