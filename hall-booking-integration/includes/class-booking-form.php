@@ -12,7 +12,16 @@ class HBI_Booking_Form {
     }
 
     public function render_form() {
-        $tariffs = get_option('hall_tariffs', []);
+        $tariffs_flat = get_option('hall_tariffs', []);
+        $tariffs = [];
+        foreach ($tariffs_flat as $tariff) {
+            $cat = $tariff['category'];
+            $label = $tariff['label'];
+            $price = $tariff['price'];
+            $tariffs[$cat][$label] = $price;
+        }
+        // Now use $tariffs (nested) in your form rendering logic as before!
+        $deposits = get_option('hall_deposits', ['main_hall_deposit'=>2000, 'crockery_deposit'=>500]);
         $main_hall_deposit_price = null;
         $crockery_deposit_price = null;
         foreach ($tariffs as $cat => &$items) {
