@@ -85,6 +85,7 @@ class HBI_Booking_Form {
                 <div style="flex:1;">
                     <label>Preferred Space*</label>
                     <select name="hbi_space" id="hbi_space" required style="width:100%;">
+                        <option value="">Please select a space</option>
                         <option value="Main Hall">Main Hall</option>
                         <option value="Meeting Room">Meeting Room</option>
                         <option value="Both Spaces">Both Spaces</option>
@@ -120,7 +121,7 @@ class HBI_Booking_Form {
             <div style="height:12px;"></div>
             <div style="display:flex; gap:24px;">
                 <div style="flex:1;">
-                    <label>Event Time*</label>
+                    <label>Event Time* ((include setup and break-down times)</label>
                     <select name="hbi_event_time" id="hbi_event_time" required style="width:100%;">
                         <option value="Full Day">Full Day (8am-12:00am)</option>
                         <option value="Morning">Morning (8am-12pm)</option>
@@ -157,6 +158,7 @@ class HBI_Booking_Form {
                             <legend><?php echo esc_html($category); ?></legend>
                             <table style="width:100%; border-collapse:collapse;">
                                 <?php foreach ($items as $label => $price): ?>
+                                
                                     <tr class="tariff-row"
                                         data-category="<?php echo esc_attr($category); ?>"
                                         data-label="<?php echo esc_attr($label); ?>">
@@ -173,14 +175,19 @@ class HBI_Booking_Form {
                                                 <?php echo esc_html($label); ?>
                                             </label>
                                         </td>
-                                        <td>
-                                            <input type="number"
-                                                name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]"
-                                                value="0" min="0" max="999"
-                                                style="width:80px; text-align:center;"
-                                                class="tariff-qty"
-                                            >
-                                        </td>
+<td>
+    <?php if (stripos($label, 'for 1st hour') !== false): ?>
+        1
+        <input type="hidden" name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]" value="1" class="tariff-qty">
+    <?php else: ?>
+        <input type="number"
+            name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]"
+            value="0" min="0" max="999"
+            style="width:80px; text-align:center;"
+            class="tariff-qty"
+        >
+    <?php endif; ?>
+</td>
                                         <td>R <?php echo number_format((float)$price,2); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -218,20 +225,23 @@ class HBI_Booking_Form {
                                                     <?php echo esc_html($label); ?>
                                                 </label>
                                             </td>
-                                            <td>
-                                                <?php if ($is_spotlight_sound || $is_kitchen): ?>
-                                                    <span class="static-qty-display">0</span>
-                                                <?php else: ?>
-                                                    <input type="number"
-                                                        name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]"
-                                                        value="0" min="0" max="999"
-                                                        style="width:80px; text-align:center;"
-                                                        class="tariff-qty <?php
-                                                            echo $is_crockery || $is_cutlery || $is_glassware ? 'crockery-qty' : '';
-                                                        ?>"
-                                                    >
-                                                <?php endif; ?>
-                                            </td>
+<td>
+    <?php if ($is_spotlight_sound || $is_kitchen): ?>
+        <span class="static-qty-display">0</span>
+    <?php elseif (stripos($label, 'bar service') !== false): ?>
+        <span class="bar-display">No</span>
+        <input type="hidden" name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]" value="0" class="tariff-qty bar-qty">
+    <?php else: ?>
+        <input type="number"
+            name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]"
+            value="0" min="0" max="999"
+            style="width:80px; text-align:center;"
+            class="tariff-qty <?php
+                echo $is_crockery || $is_cutlery || $is_glassware ? 'crockery-qty' : '';
+            ?>"
+        >
+    <?php endif; ?>
+</td>
                                             <td>R <?php echo number_format((float)$price,2); ?></td>
                                         </tr>
                                     <?php endforeach; ?>
