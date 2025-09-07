@@ -50,75 +50,72 @@ class HBI_Booking_Handler {
         $tariffs_raw   = $_POST['hbi_tariff'] ?? [];
         $quantities_raw= $_POST['hbi_quantity'] ?? [];
 
-        // Build items array
-        $items = [];
-        $total = 0;
-        $tariffs_option = get_option('hall_tariffs', []);
-        // For each selected item, get category/label, quantity, and price
-        foreach ($tariffs_raw as $category => $labels) {
-            foreach ($labels as $label => $checked) {
-                $qty = isset($quantities_raw[$category][$label]) ? intval($quantities_raw[$category][$label]) : 1;
-                $price = isset($tariffs_option[$category][$label]) ? floatval($tariffs_option[$category][$label]) : 0;
-                if ($qty > 0) {
-                    $subtotal = $qty * $price;
-                    $items[] = [
-                        'category' => $category,
-                        'label'    => $label,
-                        'quantity' => $qty,
-                        'price'    => $price,
-                        'subtotal' => $subtotal,
-                    ];
-                    $total += $subtotal;
-                }
-            }
+// Build items array
+$items = [];
+$total = 0;
+$tariffs_flat = get_option('hall_tariffs', []);
+$tariffs_option = [];
+foreach ($tariffs_flat as $tariff) {
+    $cat = $tariff['category'];
+    $label = $tariff['label'];
+    $price = $tariff['price'];
+    $tariffs_option[$cat][$label] = $price;
+}
+foreach ($tariffs_raw as $category => $labels) {
+    foreach ($labels as $label => $checked) {
+        $qty = isset($quantities_raw[$category][$label]) ? intval($quantities_raw[$category][$label]) : 1;
+        $price = isset($tariffs_option[$category][$label]) ? floatval($tariffs_option[$category][$label]) : 0;
+        if ($qty > 0) {
+            $subtotal = $qty * $price;
+            $items[] = [
+                'category' => $category,
+                'label'    => $label,
+                'quantity' => $qty,
+                'price'    => $price,
+                'subtotal' => $subtotal,
+            ];
+            $total += $subtotal;
         }
+    }
+}
+        
+// Fetch deposit values from the new option
+$deposits = get_option('hall_deposits', ['main_hall_deposit' => 2000, 'crockery_deposit' => 500]);
 
-        // Add deposit items if needed
-        $main_hall_deposit_price = null;
-        $crockery_deposit_price = null;
-        foreach ($tariffs_option as $cat => $tariff_items) {
-            foreach ($tariff_items as $label => $price) {
-                if (stripos($label, 'deposit') !== false) {
-                    if (stripos($label, 'main hall') !== false) {
-                        $main_hall_deposit_price = $price;
-                    } elseif (stripos($label, 'crockery') !== false) {
-                        $crockery_deposit_price = $price;
-                    }
-                }
-            }
-        }
-        // Deposit conditions (same as JS)
-        if ($main_hall_deposit_price !== null && ($space === "Main Hall" || $space === "Both Spaces")) {
-            $items[] = [
-                'category' => 'Deposits',
-                'label'    => 'Main Hall refundable deposit',
-                'quantity' => 1,
-                'price'    => floatval($main_hall_deposit_price),
-                'subtotal' => floatval($main_hall_deposit_price),
-            ];
-            $total += floatval($main_hall_deposit_price);
-        }
-        $crockery_selected = false;
-        foreach ($items as $item) {
-            $cat = strtolower($item['category']);
-            if (
-                ($cat === "crockery (each)" || $cat === "glassware (each)" || $cat === "cutlery (each)") &&
-                $item['quantity'] > 0
-            ) {
-                $crockery_selected = true;
-                break;
-            }
-        }
-        if ($crockery_deposit_price !== null && $crockery_selected) {
-            $items[] = [
-                'category' => 'Deposits',
-                'label'    => 'Refundable deposit for crockery, cutlery, & glassware',
-                'quantity' => 1,
-                'price'    => floatval($crockery_deposit_price),
-                'subtotal' => floatval($crockery_deposit_price),
-            ];
-            $total += floatval($crockery_deposit_price);
-        }
+// Add Main Hall deposit if needed
+if ($space === "Main Hall" || $space === "Both Spaces") {
+    $items[] = [
+        'category' => 'Deposits',
+        'label'    => 'Main Hall refundable deposit',
+        'quantity' => 1,
+        'price'    => floatval($deposits['main_hall_deposit']),
+        'subtotal' => floatval($deposits['main_hall_deposit']),
+    ];
+    $total += floatval($deposits['main_hall_deposit']);
+}
+
+// Determine if crockery/cutlery/glassware were selected
+$crockery_selected = false;
+foreach ($items as $item) {
+    $cat = strtolower($item['category']);
+    if (
+        ($cat === "crockery (each)" || $cat === "glassware (each)" || $cat === "cutlery (each)") &&
+        $item['quantity'] > 0
+    ) {
+        $crockery_selected = true;
+        break;
+    }
+}
+if ($crockery_selected) {
+    $items[] = [
+        'category' => 'Deposits',
+        'label'    => 'Refundable deposit for crockery, cutlery, & glassware',
+        'quantity' => 1,
+        'price'    => floatval($deposits['crockery_deposit']),
+        'subtotal' => floatval($deposits['crockery_deposit']),
+    ];
+    $total += floatval($deposits['crockery_deposit']);
+}
 
         // Format booking title
         $title = sprintf( $event_title );
@@ -216,6 +213,13 @@ update_post_meta( $invoice_id, '_hbi_event_id', $event_id );
 // Save complex array (_hbi_items)
 update_post_meta( $invoice_id, '_hbi_items', $items );
 
+// Always recalculate and store the total
+$total = 0;
+foreach ($items as $it) {
+    $total += floatval($it['subtotal'] ?? 0);
+}
+update_post_meta($invoice_id, '_hbi_total', $total);
+
 // ===== DEBUG BLOCK - REMOVE AFTER TESTING =====
 error_log( "HBI DEBUG: invoice_id = $invoice_id" );
 error_log( "HBI DEBUG: items (raw) = " . print_r( $items, true ) );
@@ -260,8 +264,13 @@ function hbi_build_booking_summary_html($invoice_id) {
     $start  = get_post_meta($invoice_id, '_hbi_start_date', true);
     $end    = get_post_meta($invoice_id, '_hbi_end_date', true);
     $items  = get_post_meta($invoice_id, '_hbi_items', true);
-    $total  = get_post_meta($invoice_id, '_hbi_total', true);
-
+    // Recalculate total from items array for always-correct output
+    $total = 0;
+        if (is_array($items)) {
+         foreach ($items as $it) {
+                $total += floatval($it['subtotal'] ?? 0);
+            }
+        }
     $out  = "<h3>Booking Summary</h3>";
     $out .= "<p><strong>Name:</strong> " . esc_html($name) . "<br>";
     $out .= "<strong>Email:</strong> " . esc_html($email) . "<br>";
