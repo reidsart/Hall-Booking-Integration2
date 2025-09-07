@@ -111,7 +111,12 @@ class HBI_Invoices {
         $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
         $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
         $items          = get_post_meta( $invoice_id, '_hbi_items', true ); // array of items
-        $total          = get_post_meta( $invoice_id, '_hbi_total', true );
+        $total = 0;
+        if ( is_array( $items ) ) {
+            foreach ( $items as $it ) {
+                $total += floatval( $it['subtotal'] ?? 0 );
+            }
+        }
         $bank_details   = get_option( 'hbi_bank_details', 'Bank: XXX, Account: YYY' );
         $terms          = get_option( 'hbi_terms', 'Payment within 7 days. Deposit refundable as per policy.' );
 
@@ -344,7 +349,13 @@ public function render_invoice_meta_box( $post ) {
     $name = get_post_meta( $invoice_id, '_hbi_customer_name', true );
     $email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
     $number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
-    $total = get_post_meta( $invoice_id, '_hbi_total', true );
+    $items = get_post_meta( $invoice_id, '_hbi_items', true );
+    $total = 0;
+    if (is_array($items)) {
+        foreach ($items as $it) {
+            $total += floatval($it['subtotal'] ?? 0);
+        }
+    }
     $pdf_url = get_post_meta( $invoice_id, '_hbi_pdf_url', true );
 
     echo '<p><strong>Invoice:</strong> ' . esc_html( $number ) . '</p>';
