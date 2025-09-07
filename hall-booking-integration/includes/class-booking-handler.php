@@ -184,39 +184,162 @@ update_post_meta( $event_id, '_hbi_event_private', $privacy_flag ); // plugin sp
             wp_die( 'Error saving event in Events Manager.' );
         }
 
-        // Step 2: Create draft Invoice (CPT)
-        $invoice_id = wp_insert_post( array(
-            'post_type'   => 'hbi_invoice',
-            'post_title'  => 'Invoice (Draft) - ' . $title,
-            'post_status' => 'draft',
-            'meta_input'  => array(
-                '_hbi_customer_name'   => $name,
-                '_hbi_customer_email'  => $email,
-                '_hbi_customer_phone'  => $phone,
-                '_hbi_organization'    => $organization,
-                '_hbi_event_title'     => $event_title,
-                '_hbi_event_privacy'   => $event_privacy,
-                '_hbi_event_description'=> $event_description,
-                '_hbi_space'           => $space,
-                '_hbi_guest_count'     => $guest_count,
-                '_hbi_start_date'      => $start_date,
-                '_hbi_end_date'        => $end_date,
-                '_hbi_event_time'      => $event_time,
-                '_hbi_custom_start'    => $custom_start,
-                '_hbi_custom_end'      => $custom_end,
-                '_hbi_items'           => $items,
-                '_hbi_total'           => $total,
-                '_hbi_event_id'        => $event_id,
-            ),
-        ) );
+// Step 2: Create draft Invoice (CPT)
+$invoice_id = wp_insert_post( array(
+    'post_type'   => 'hbi_invoice',
+    'post_title'  => 'Invoice (Draft) - ' . $title,
+    'post_status' => 'draft',
+) );
 
-        if ( ! $invoice_id ) {
-            wp_die( 'Error creating invoice.' );
+if ( ! $invoice_id ) {
+    wp_die( 'Error creating invoice.' );
+}
+
+// Force-save invoice meta to avoid missing data
+update_post_meta( $invoice_id, '_hbi_customer_name', $name );
+update_post_meta( $invoice_id, '_hbi_customer_email', $email );
+update_post_meta( $invoice_id, '_hbi_customer_phone', $phone );
+update_post_meta( $invoice_id, '_hbi_organization', $organization );
+update_post_meta( $invoice_id, '_hbi_event_title', $event_title );
+update_post_meta( $invoice_id, '_hbi_event_privacy', $event_privacy );
+update_post_meta( $invoice_id, '_hbi_event_description', $event_description );
+update_post_meta( $invoice_id, '_hbi_space', $space );
+update_post_meta( $invoice_id, '_hbi_guest_count', $guest_count );
+update_post_meta( $invoice_id, '_hbi_start_date', $start_date );
+update_post_meta( $invoice_id, '_hbi_end_date', $end_date );
+update_post_meta( $invoice_id, '_hbi_event_time', $event_time );
+update_post_meta( $invoice_id, '_hbi_custom_start', $custom_start );
+update_post_meta( $invoice_id, '_hbi_custom_end', $custom_end );
+update_post_meta( $invoice_id, '_hbi_total', $total );
+update_post_meta( $invoice_id, '_hbi_event_id', $event_id );
+
+// Save complex array (_hbi_items)
+update_post_meta( $invoice_id, '_hbi_items', $items );
+
+// ===== DEBUG BLOCK - REMOVE AFTER TESTING =====
+error_log( "HBI DEBUG: invoice_id = $invoice_id" );
+error_log( "HBI DEBUG: items (raw) = " . print_r( $items, true ) );
+$meta_after = get_post_meta( $invoice_id );
+error_log( "HBI DEBUG: meta_after for invoice $invoice_id = " . print_r( $meta_after, true ) );
+// ===== END DEBUG BLOCK =====
+
+// ---------- Invoice number generation in format YYYYMMDDNN ----------
+global $wpdb;
+$invoice_date_part = str_replace('-', '', $start_date);
+$sql = $wpdb->prepare(
+    "SELECT COUNT(*) FROM {$wpdb->postmeta} pm
+     INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+     WHERE p.post_type = %s AND pm.meta_key = %s AND pm.meta_value = %s",
+     'hbi_invoice',
+     '_hbi_start_date',
+     $start_date
+);
+$count_for_date = intval( $wpdb->get_var( $sql ) );
+$sequence = $count_for_date + 1;
+$invoice_number = $invoice_date_part . str_pad( $sequence, 2, '0', STR_PAD_LEFT );
+
+update_post_meta( $invoice_id, '_hbi_invoice_number', $invoice_number );
+
+// Update title to include invoice number
+wp_update_post( array(
+    'ID'         => $invoice_id,
+    'post_title' => sprintf( 'Invoice %s - %s', $invoice_number, $title ),
+) );
+
+// Debug confirm
+$all_meta = get_post_meta( $invoice_id );
+error_log( "HBI DEBUG: Invoice $invoice_id meta after save: " . print_r( $all_meta, true ) );
+
+// ----------------- EMAILS: Customer + Admin -----------------
+
+// Build a booking summary HTML (simple)
+function hbi_build_booking_summary_html($invoice_id) {
+    $name   = get_post_meta($invoice_id, '_hbi_customer_name', true);
+    $email  = get_post_meta($invoice_id, '_hbi_customer_email', true);
+    $space  = get_post_meta($invoice_id, '_hbi_space', true);
+    $start  = get_post_meta($invoice_id, '_hbi_start_date', true);
+    $end    = get_post_meta($invoice_id, '_hbi_end_date', true);
+    $items  = get_post_meta($invoice_id, '_hbi_items', true);
+    $total  = get_post_meta($invoice_id, '_hbi_total', true);
+
+    $out  = "<h3>Booking Summary</h3>";
+    $out .= "<p><strong>Name:</strong> " . esc_html($name) . "<br>";
+    $out .= "<strong>Email:</strong> " . esc_html($email) . "<br>";
+    $out .= "<strong>Space:</strong> " . esc_html($space) . "<br>";
+    $out .= "<strong>Start:</strong> " . esc_html($start) . "<br>";
+    $out .= "<strong>End:</strong> " . esc_html($end) . "</p>";
+
+    if ( is_array($items) && count($items) ) {
+        $out .= "<table style='width:100%;border-collapse:collapse;'><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Subtotal</th></tr></thead><tbody>";
+        foreach($items as $it) {
+            $out .= "<tr>";
+            $out .= "<td style='border:1px solid #ddd;padding:6px;'>" . esc_html($it['label'] ?? '') . "</td>";
+            $out .= "<td style='border:1px solid #ddd;padding:6px;text-align:right;'>" . intval($it['quantity'] ?? 0) . "</td>";
+            $out .= "<td style='border:1px solid #ddd;padding:6px;text-align:right;'>R " . number_format(floatval($it['price'] ?? 0),2) . "</td>";
+            $out .= "<td style='border:1px solid #ddd;padding:6px;text-align:right;'>R " . number_format(floatval($it['subtotal'] ?? 0),2) . "</td>";
+            $out .= "</tr>";
         }
+        $out .= "</tbody></table>";
+    }
 
-        // Step 3: Redirect to Thank You page
-        $thank_you_url = site_url( '/thank-you/?booking_id=' . $invoice_id );
-        wp_safe_redirect( $thank_you_url );
-        exit;
+    $out .= "<p><strong>Total:</strong> R " . number_format(floatval($total),2) . "</p>";
+
+    return $out;
+}
+
+$invoice_summary_html = hbi_build_booking_summary_html($invoice_id);
+
+// 1) Customer confirmation email
+$customer_to = $email;
+$customer_subject = "Sandbaai Hall — Booking Request Received (#" . esc_html( get_post_meta($invoice_id,'_hbi_invoice_number',true) ) . ")";
+$customer_message = "<p>Dear " . esc_html($name) . ",</p>";
+$customer_message .= "<p>Thank you — we received your booking request. Below are the details:</p>";
+$customer_message .= $invoice_summary_html;
+$customer_message .= "<p>We will review and send you a final invoice once the booking is approved by an admin.</p>";
+$customer_headers = array('Content-Type: text/html; charset=UTF-8');
+wp_mail( $customer_to, $customer_subject, $customer_message, $customer_headers );
+
+if ( ! wp_mail( $admin_to, $admin_subject, $admin_message, $admin_headers ) ) {
+    error_log( 'HBI: wp_mail returned false when sending admin email' );
+} else {
+    error_log( 'HBI: admin email sent (wp_mail returned true).' );
+}
+
+// 2) Admin notification with approve link
+$admin_to = 'booking@sandbaaihall.co.za';
+$admin_subject = "New Booking Request — " . esc_html($event_title) . " (" . esc_html($start_date) . ")";
+$admin_message = "<p>A new booking request has been submitted. Summary below:</p>";
+$admin_message .= $invoice_summary_html;
+
+// Create a nonce-protected approve link (admin must be logged in)
+$nonce = wp_create_nonce( 'hbi_approve_invoice_' . $invoice_id );
+$approve_url = admin_url( 'admin-post.php?action=hbi_approve_invoice&invoice_id=' . $invoice_id . '&_wpnonce=' . $nonce );
+
+$admin_message .= '<p><a href="' . esc_url( $approve_url ) . '" style="display:inline-block;padding:10px 14px;background:#1e73be;color:#fff;border-radius:6px;text-decoration:none;">Approve & Generate Invoice PDF</a></p>';
+
+$admin_headers = array('Content-Type: text/html; charset=UTF-8');
+wp_mail( $admin_to, $admin_subject, $admin_message, $admin_headers );
+
+// ----------------- END EMAILS -----------------
+
+// Step 3: Redirect to Thank You page
+$thank_you_url = site_url( '/thank-you/?booking_id=' . $invoice_id );
+wp_safe_redirect( $thank_you_url );
+exit;
     }
 }
+
+// Debug shortcode: [hbi_invoice_debug id=123]
+add_shortcode( 'hbi_invoice_debug', function($atts) {
+    $atts = shortcode_atts( array('id' => ''), $atts );
+    $id = intval( $_GET['booking_id'] ?? $atts['id'] );
+    if (!$id) return '<div style="color:darkred">No invoice id supplied</div>';
+
+    $meta = get_post_meta( $id );
+    ob_start();
+    echo '<h3>HBI Invoice Debug — ID: ' . esc_html($id) . '</h3>';
+    echo '<pre style="white-space:pre-wrap;background:#f6f8fb;padding:12px;border:1px solid #d6e8f5;">';
+    echo esc_html( print_r( $meta, true ) );
+    echo '</pre>';
+    return ob_get_clean();
+});
