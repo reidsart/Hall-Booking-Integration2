@@ -73,104 +73,240 @@ class HBI_Invoices {
         update_option( 'hbi_last_invoice_number', $new_number );
     }
 
-    /**
-     * Generate PDF Invoice using TCPDF
-     */
-    /**
-     * Generate PDF Invoice using TCPDF
-     */
-    public static function generate_pdf( $invoice_id ) {
-        if ( ! $invoice_id ) return '';
+/**
+ * Generate PDF Invoice using TCPDF - FIXED VERSION
+ */
+public static function generate_pdf( $invoice_id ) {
+    error_log("=== HBI PDF: generate_pdf() called for invoice ID: $invoice_id ===");
+    
+    if ( ! $invoice_id ) {
+        error_log("HBI PDF: No invoice ID provided, returning empty");
+        return '';
+    }
 
-        // ===== DEBUG BLOCK =====
-        error_log("HBI DEBUG: generate_pdf called for invoice_id=" . $invoice_id);
-        $meta = get_post_meta($invoice_id);
-        error_log("HBI DEBUG: meta in generate_pdf: " . print_r($meta, true));
-        // ===== END DEBUG BLOCK =====
-
-        // ensure invoice number assigned
+    // ensure invoice number assigned
+    $invoice_number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
+    if ( empty( $invoice_number ) ) {
+        $handler = new self();
+        $handler->assign_invoice_number( $invoice_id, get_post( $invoice_id ), true );
         $invoice_number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
-        if ( empty( $invoice_number ) ) {
-            // ensure assignment via existing method
-            $handler = new self();
-            $handler->assign_invoice_number( $invoice_id, get_post( $invoice_id ), true );
-            $invoice_number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
-        }
+    }
 
-        // Load TCPDF
-        if ( ! class_exists( 'TCPDF' ) ) {
-            $tcpdf_path = HBI_PLUGIN_DIR . 'tcpdf/tcpdf.php';
-            if ( file_exists( $tcpdf_path ) ) {
-                require_once $tcpdf_path;
-            } else {
-                return ''; // TCPDF not installed
-            }
-        }
-
-        // Gather invoice data
-        $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
-        $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
-        $items          = get_post_meta( $invoice_id, '_hbi_items', true ); // array of items
-        $total = 0;
-        if ( is_array( $items ) ) {
-            foreach ( $items as $it ) {
-                $total += floatval( $it['subtotal'] ?? 0 );
-            }
-        }
-        $bank_details   = get_option( 'hbi_bank_details', 'Bank: XXX, Account: YYY' );
-        $terms          = get_option( 'hbi_terms', 'Payment within 7 days. Deposit refundable as per policy.' );
-
-        // Build HTML for PDF
-        $html  = '<h1>Invoice #' . esc_html( $invoice_number ) . '</h1>';
-        $html .= '<p><strong>Customer:</strong> ' . esc_html( $customer_name ) . ' &nbsp; | &nbsp; ' . esc_html( $customer_email ) . '</p>';
-        $html .= '<table border="1" cellpadding="6" cellspacing="0" style="width:100%;border-collapse:collapse;">';
-        $html .= '<thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>';
-        if ( is_array( $items ) ) {
-            foreach ( $items as $it ) {
-                $html .= '<tr>';
-                $html .= '<td>' . esc_html( $it['label'] ) . '</td>';
-                $html .= '<td align="right">' . intval( $it['quantity'] ) . '</td>';
-                $html .= '<td align="right">R ' . number_format( floatval( $it['price'] ), 2 ) . '</td>';
-                $html .= '<td align="right">R ' . number_format( floatval( $it['subtotal'] ), 2 ) . '</td>';
-                $html .= '</tr>';
-            }
-        }
-        $html .= '</tbody>';
-        $html .= '<tfoot><tr><td colspan="3" align="right"><strong>Total</strong></td><td align="right"><strong>R ' . number_format( floatval( $total ), 2 ) . '</strong></td></tr></tfoot>';
-        $html .= '</table>';
-        $html .= '<h4>Bank details</h4><p>' . nl2br( esc_html( $bank_details ) ) . '</p>';
-        $html .= '<h4>Terms</h4><p>' . nl2br( esc_html( $terms ) ) . '</p>';
-
-        // Generate PDF
-        try {
-            $pdf = new TCPDF( 'P', 'mm', 'A4', true, 'UTF-8', false );
-            $pdf->SetCreator( 'Sandbaai Hall' );
-            $pdf->SetAuthor( 'Sandbaai Hall Management Committee' );
-            $pdf->SetTitle( 'Invoice #' . $invoice_number );
-            $pdf->SetMargins( 15, 15, 15 );
-            $pdf->AddPage();
-            $pdf->writeHTML( $html, true, false, true, false, '' );
-
-            // Save to uploads/hall-invoices/
-            $upload_dir = wp_upload_dir();
-            $dir = trailingslashit( $upload_dir['basedir'] ) . 'hall-invoices';
-            if ( ! file_exists( $dir ) ) wp_mkdir_p( $dir );
-            $filename = 'invoice-' . $invoice_number . '.pdf';
-            $path = trailingslashit( $dir ) . $filename;
-
-            $pdf->Output( $path, 'F' );
-
-            $public_url = trailingslashit( $upload_dir['baseurl'] ) . 'hall-invoices/' . $filename;
-            update_post_meta( $invoice_id, '_hbi_pdf_url', $public_url );
-            update_post_meta( $invoice_id, '_hbi_pdf_path', $path );
-
-            return $public_url;
-        } catch ( Exception $e ) {
-            error_log( 'HBI PDF error: ' . $e->getMessage() );
-            return '';
+    // Load TCPDF
+    if ( ! class_exists( 'TCPDF' ) ) {
+        $tcpdf_path = HBI_PLUGIN_DIR . 'tcpdf/tcpdf.php';
+        if ( file_exists( $tcpdf_path ) ) {
+            require_once $tcpdf_path;
+        } else {
+            error_log( "HBI PDF: TCPDF not found at {$tcpdf_path}" );
+            return ''; // TCPDF not installed
         }
     }
+
+    // Gather invoice data
+    $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
+    $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
+
+    // items: try both meta keys so we are robust
+    $items = get_post_meta( $invoice_id, '_hbi_items', true );
+    if ( empty( $items ) ) {
+        $items = get_post_meta( $invoice_id, '_hbi_invoice_items', true );
+    }
+    if ( ! is_array( $items ) ) $items = array();
+
+    // Separate regular items from deposits
+    $regular_items = array();
+    $deposit_items = array();
     
+    foreach ( $items as $item ) {
+        $category = strtolower( $item['category'] ?? '' );
+        $label = strtolower( $item['label'] ?? '' );
+        
+        // Check if this is a deposit item
+        if ( strpos( $category, 'deposit' ) !== false || 
+             strpos( $label, 'deposit' ) !== false ||
+             strpos( $label, 'refundable' ) !== false ) {
+            $deposit_items[] = $item;
+        } else {
+            $regular_items[] = $item;
+        }
+    }
+
+    // Calculate subtotal from regular items only
+    $subtotal = 0;
+    foreach ( $regular_items as $item ) {
+        $subtotal += floatval( $item['subtotal'] ?? ( (floatval($item['quantity'] ?? 0) * floatval($item['price'] ?? 0)) ) );
+    }
+
+    // Calculate deposit total from deposit items
+    $deposit_total = 0;
+    foreach ( $deposit_items as $item ) {
+        $deposit_total += floatval( $item['subtotal'] ?? ( (floatval($item['quantity'] ?? 0) * floatval($item['price'] ?? 0)) ) );
+    }
+
+    // Default bank details + terms (can be overridden by options)
+    $bank_details = get_option( 'hbi_bank_details',
+        "Bank: FNB (First National Bank)\n" .
+        "Account Name: Sandbaai Hall Management Committee\n" .
+        "Account Number: 62711043068\n" .
+        "Branch Code: 200412\n" .
+        "Email proof of payment to booking@sandbaaihall.co.za\n" .
+        "Reference: Use your Invoice Number"
+    );
+
+    $terms = get_option( 'hbi_terms',
+       "<em>*Payment is due within 10 days of event date." .
+       "**Main Hall bookings are confirmed after payment of deposit." .
+        "***Refundable deposits will be returned within 7 working days after inspection, provided no damages or losses occurred." .
+        "****Cancellations must be made in writing. Refer to the <a href=\"https://sandbaaihall.co.za/terms-rules-policies/\" target=\"_blank\">Hall Terms, Rules and Policies</a> for details.</em>"
+    );
+
+    // Build HTML for PDF (compact & styled to stay on one page)
+    $html  = '<style>
+        body { font-family: DejaVu Sans, sans-serif; font-size:10px; }
+        h1 { font-size:14px; margin-bottom:6px; }
+        .meta { font-size:10px; }
+        table.items { width:100%; border-collapse:collapse; font-size:10px; }
+        table.items th { background:#f2f2f2; padding:6px; border:1px solid #ddd; text-align:left; }
+        table.items td { padding:6px; border:1px solid #ddd; vertical-align:top; }
+        td.amount { text-align:right; }
+        .spacer { height:12px; border:none; }
+        table.deposits { width:100%; border-collapse:collapse; margin-top:8px; font-size:10px; }
+        table.deposits td { padding:6px; border:1px solid #ddd; }
+        .grand { font-size:12px; font-weight:bold; text-align:right; margin-top:12px; }
+        .small { font-size:9px; color:#444; }
+    </style>';
+
+    // header area (left: hall info, right: invoice meta)
+    $html .= '<table width="100%"><tr>';
+    $html .= '<td width="60%">';
+    $html .= '<div style="font-size:16px;font-weight:bold;">SANDBAAI HALL / SANDBAAISAAL</div>';
+    $html .= '<div class="small">Sandbaaisaalbestuurskomitee (SBBK)<br/>Cnr Jimmy Smith Str & Main Road, Sandbaai 7200<br/>bookings@sandbaaihall.co.za</div>';
+    $html .= '</td>';
+    $html .= '<td width="40%" style="text-align:right;">';
+    $html .= '<div style="font-size:16px;font-weight:bold;">INVOICE</div>';
+    $html .= '<div class="meta">Invoice #: ' . esc_html( $invoice_number ) . '<br/>' . 'Date: ' . date_i18n( 'd/m/Y' ) . '</div>';
+    $html .= '</td>';
+    $html .= '</tr></table><br>';
+
+    $html .= '<hr style="margin:8px 0;">';
+
+    // customer / event: show customer contact and event info if set on invoice meta
+    $event_title  = get_post_meta( $invoice_id, '_hbi_event_title', true );
+    $start_date   = get_post_meta( $invoice_id, '_hbi_start_date', true );
+    $end_date     = get_post_meta( $invoice_id, '_hbi_end_date', true );
+    $space        = get_post_meta( $invoice_id, '_hbi_space', true );
+    $customer_org = get_post_meta( $invoice_id, '_hbi_organization', true );
+    $customer_phone = get_post_meta( $invoice_id, '_hbi_customer_phone', true );
+
+    $html .= '<table width="100%"><tr>';
+    $html .= '<td width="50%"><strong>BILL TO</strong><br/>' .
+             esc_html( $customer_org ) . '<br/>' .
+             esc_html( $customer_name ) . '<br/>' .
+             esc_html( $customer_email ) . '<br/>' .
+             esc_html( $customer_phone ) . '</td>';
+    $html .= '<td width="50%"><strong>EVENT</strong><br/>' .
+             esc_html( $event_title ) . '<br/>' .
+             esc_html( $start_date ) . ' – ' . esc_html( $end_date ) . '<br/>' .
+             esc_html( $space ) . '</td>';
+    $html .= '</tr></table>';
+
+    $html .= '<br/>';
+    
+    // REGULAR ITEMS table (tariffs only)
+    $html .= '<br><table class="items" cellpadding="0" cellspacing="0">';
+    $html .= '<thead><tr><th style="width:56%;"><strong>DESCRIPTION</strong></th><th style="width:12%;"><strong>QTY</strong></th><th style="width:16%;"><strong>RATE</strong></th><th style="width:16%;"><strong>SUBTOTAL</strong></th></tr></thead>';
+    $html .= '<tbody>';
+
+    // Display regular line items only
+    foreach ( $regular_items as $item ) {
+        $label = esc_html( $item['label'] ?? '' );
+        $qty   = intval( $item['quantity'] ?? 0 );
+        $price = floatval( $item['price'] ?? 0 );
+        $subtotal_line = floatval( $item['subtotal'] ?? ($qty * $price) );
+
+        $html .= '<tr>';
+        $html .= '<td style="width:56%;">' . $label . '</td>';
+        $html .= '<td style="width:12%;text-align:center;">' . $qty . '</td>';
+        $html .= '<td style="width:16%;" class="amount">R ' . number_format( $price, 2 ) . '</td>';
+        $html .= '<td style="width:16%;" class="amount">R ' . number_format( $subtotal_line, 2 ) . '</td>';
+        $html .= '</tr>';
+    }
+    
+    $html .= '<tr><td colspan="4" class="spacer" style="border:none;"></td></tr>';
+    $html .= '</tbody><tfoot>';
+    $html .= '<tr><td colspan="3" style="text-align:right;"><strong>SUBTOTAL</strong></td><td class="amount"><strong>R ' . number_format( $subtotal, 2 ) . '</strong></td></tr>';
+    $html .= '</tfoot></table>';
+
+    // DEPOSITS section (only if there are deposit items)
+    if ( ! empty( $deposit_items ) ) {
+        $html .= '<h4 style="margin-top:10px;">REFUNDABLE DEPOSITS</h4>';
+        $html .= '<table class="deposits" cellpadding="0" cellspacing="0">';
+        $html .= '<tbody>';
+        
+        foreach ( $deposit_items as $item ) {
+            $label = esc_html( $item['label'] ?? '' );
+            $item_total = floatval( $item['subtotal'] ?? ( (floatval($item['quantity'] ?? 0) * floatval($item['price'] ?? 0)) ) );
+            
+            $html .= '<tr><td style="width:84%;">' . $label . '</td><td class="amount" style="width:16%;">R ' . number_format( $item_total, 2 ) . '</td></tr>';
+        }
+        
+        $html .= '</tbody>';
+        $html .= '<tfoot><tr><td style="text-align:right;"><strong>TOTAL DEPOSITS</strong></td><td class="amount"><strong>R ' . number_format( $deposit_total, 2 ) . '</strong></td></tr></tfoot>';
+        $html .= '</table>';
+    }
+
+    // Calculate GRAND TOTAL = subtotal + deposits
+    $grand_total = $subtotal + $deposit_total;
+    $html .= '<div class="grand">GRAND TOTAL: R ' . number_format( $grand_total, 2 ) . '</div>';
+
+    // bank details + proof of payment
+    $html .= '<br/>';
+    $html .= '<strong>BANK DETAILS</strong><br/><div class="small">' . nl2br( esc_html( $bank_details ) ) . '</div>';
+
+    // terms (already contains <em> by default)
+    $html .= '<br/>';
+    $html .= '<div class="small">' . $terms . '</div>';
+
+    // Generate PDF
+    try {
+        // create PDF object and set defaults
+        $pdf = new TCPDF( 'P', 'mm', 'A4', true, 'UTF-8', false );
+        $pdf->SetCreator( 'Sandbaai Hall' );
+        $pdf->SetAuthor( 'Sandbaai Hall Management Committee' );
+        $pdf->SetTitle( 'Invoice #' . $invoice_number );
+
+        // smaller default font to keep invoice compact
+        // use DejaVu Sans for better unicode support if available in your TCPDF build
+        $pdf->SetFont( 'dejavusans', '', 9 );
+
+        $pdf->SetMargins( 15, 15, 15 );
+        $pdf->SetAutoPageBreak( true, 15 );
+        $pdf->AddPage();
+
+        // write the HTML
+        $pdf->writeHTML( $html, true, false, true, false, '' );
+
+        // Save to uploads/hall-invoices/
+        $upload_dir = wp_upload_dir();
+        $dir = trailingslashit( $upload_dir['basedir'] ) . 'hall-invoices';
+        if ( ! file_exists( $dir ) ) wp_mkdir_p( $dir );
+        $filename = 'invoice-' . $invoice_number . '.pdf';
+        $path = trailingslashit( $dir ) . $filename;
+
+        $pdf->Output( $path, 'F' );
+
+        $public_url = trailingslashit( $upload_dir['baseurl'] ) . 'hall-invoices/' . $filename;
+        update_post_meta( $invoice_id, '_hbi_pdf_url', $public_url );
+        update_post_meta( $invoice_id, '_hbi_pdf_path', $path );
+
+        return $public_url;
+    } catch ( Exception $e ) {
+        error_log( 'HBI PDF error: ' . $e->getMessage() );
+        return '';
+    }
+}
+
     /**
  * Register editable invoice details box
  */
