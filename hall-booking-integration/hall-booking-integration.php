@@ -53,6 +53,30 @@ function hbi_enqueue_assets() {
 }
 add_action( 'wp_enqueue_scripts', 'hbi_enqueue_assets' );
 
+add_filter('em_event_output', function($output, $event, $format){
+    // Get "private-event" category ID
+    $private_category = get_term_by('slug', 'private-event', 'event-categories');
+    if ($private_category) {
+        $private_category_id = $private_category->term_id;
+    } else {
+        return $output;
+    }
+
+    // Get array of event category IDs
+    $event_categories = $event->get_categories();
+
+    // If this event is private, mask output everywhere
+    if (is_array($event_categories) && in_array($private_category_id, $event_categories)) {
+        $space = esc_html($event->output('#_LOCATION'));
+        $start = esc_html($event->output('#_24STARTTIME'));
+        $end = esc_html($event->output('#_24ENDTIME'));
+        $title = 'Private Event';
+        $output = "<div class='private-event'><strong>{$title}</strong><br>Space: {$space}<br>Time: {$start} - {$end}</div>";
+    }
+
+    return $output;
+}, 10, 3);
+
 // Initialize classes
 add_action( 'plugins_loaded', function() {
     new HBI_Booking_Form();
