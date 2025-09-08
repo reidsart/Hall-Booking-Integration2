@@ -149,21 +149,19 @@ class HBI_Booking_Form {
 
 <hr class="section-divider">
 
-
             <h3>QUOTE & TARIFF SELECTION</h3>
             <div class="hbi-tariffs">
                 <?php foreach ($tariffs as $category => $items): ?>
                     <?php if (strtolower($category) === 'hall hire rate'): ?>
                         <fieldset>
-                            <legend><?php echo esc_html($category); ?></legend>
+                            <legend><?php echo esc_html($category); ?> <span style="font-size:0.9em; font-weight:normal;">(Auto-calculated based on dates/times above)</span></legend>
                             <table style="width:100%; border-collapse:collapse;">
                                 <?php foreach ($items as $label => $price): ?>
-                                
                                     <tr class="tariff-row"
                                         data-category="<?php echo esc_attr($category); ?>"
                                         data-label="<?php echo esc_attr($label); ?>">
                                         <td>
-                                            <label>
+                                            <label style="color:#666; cursor:not-allowed;">
                                                 <input type="checkbox"
                                                     class="tariff-item"
                                                     name="hbi_tariff[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]"
@@ -171,23 +169,19 @@ class HBI_Booking_Form {
                                                     data-price="<?php echo esc_attr($price); ?>"
                                                     data-category="<?php echo esc_attr($category); ?>"
                                                     data-label="<?php echo esc_attr($label); ?>"
+                                                    style="cursor:not-allowed;"
+                                                    disabled
                                                 >
                                                 <?php echo esc_html($label); ?>
                                             </label>
                                         </td>
-<td>
-    <?php if (stripos($label, 'for 1st hour') !== false): ?>
-        1
-        <input type="hidden" name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]" value="1" class="tariff-qty">
-    <?php else: ?>
-        <input type="number"
-            name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]"
-            value="0" min="0" max="999"
-            style="width:80px; text-align:center;"
-            class="tariff-qty"
-        >
-    <?php endif; ?>
-</td>
+                                        <td>
+                                            <span class="static-qty-display">0</span>
+                                            <input type="hidden" 
+                                                name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]" 
+                                                value="0" 
+                                                class="tariff-qty">
+                                        </td>
                                         <td>R <?php echo number_format((float)$price,2); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
