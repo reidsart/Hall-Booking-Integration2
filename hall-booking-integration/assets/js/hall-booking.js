@@ -1,25 +1,26 @@
 jQuery(document).ready(function ($) {
-// --- Multi-day logic
-function updateMultiDay() {
-    if ($('#hbi_multi_day').val() == '1') {
-        $('#hbi_end_date_wrap').show();
-    } else {
-        $('#hbi_end_date_wrap').hide();
-        $('#hbi_end_date').val($('#hbi_start_date').val());
+
+    // --- Multi-day logic
+    function updateMultiDay() {
+        if ($('#hbi_multi_day').val() == '1') {
+            $('#hbi_end_date_wrap').show();
+        } else {
+            $('#hbi_end_date_wrap').hide();
+            $('#hbi_end_date').val($('#hbi_start_date').val());
+        }
+        autofillHallHireRates();
     }
-    autofillHallHireRates();
-}
 
-$('#hbi_multi_day').on('change', updateMultiDay);
+    $('#hbi_multi_day').on('change', updateMultiDay);
 
-$('#hbi_start_date').on('change', function () {
-    if ($('#hbi_multi_day').val() != '1') {
-        $('#hbi_end_date').val($(this).val());
-    }
-    autofillHallHireRates();
-});
+    $('#hbi_start_date').on('change', function () {
+        if ($('#hbi_multi_day').val() != '1') {
+            $('#hbi_end_date').val($(this).val());
+        }
+        autofillHallHireRates();
+    });
 
-updateMultiDay();
+    updateMultiDay();
 
     // --- Custom hours logic
     $('#hbi_event_time').on('change', function () {
@@ -36,11 +37,11 @@ updateMultiDay();
     $('.hbi-toggle').on('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        
+
         var $fieldset = $(this).closest('.hbi-collapsible');
         var $content = $fieldset.find('.hbi-collapsible-content');
         var isExpanded = $fieldset.hasClass('expanded');
-        
+
         if (isExpanded) {
             // Closing
             $fieldset.removeClass('expanded');
@@ -52,7 +53,7 @@ updateMultiDay();
             $content.slideDown();
             $(this).html('&#9660; ' + $(this).text().replace('▶', '').replace('▼', '').trim());
         }
-        
+
         return false;
     });
 
@@ -63,14 +64,14 @@ updateMultiDay();
         var $staticQty = $row.find('.static-qty-display');
         var category = $(this).data('category') || '';
         var isHallHire = category.toLowerCase() === 'hall hire rate';
-        
+
         // Don't allow manual changes to Hall Hire Rate checkboxes
         if (isHallHire) {
             // Restore the checkbox to its previous state and return
             $(this).prop('checked', $(this).data('previous-state') || false);
             return;
         }
-        
+
         if ($(this).prop('checked')) {
             if ($qtyInput.length) {
                 $qtyInput.val("1").prop('disabled', false);
@@ -89,7 +90,7 @@ updateMultiDay();
         updateDepositSummary();
         updateTotal();
     });
-    
+
     // --- Quantity input changes (ENHANCED - auto-check items)
     $('.tariff-qty').on('input', function () {
         var $row = $(this).closest('.tariff-row');
@@ -99,20 +100,20 @@ updateMultiDay();
         var isHallHire = category.toLowerCase() === 'hall hire rate';
         var isFirstHour = label.indexOf('for 1st hour') !== -1;
         var qty = parseInt($(this).val()) || 0;
-        
+
         // Don't allow manual changes to Hall Hire Rate quantities
         if (isHallHire) {
             // Restore the previous value and return
             $(this).val($(this).data('previous-value') || 0);
             return;
         }
-        
+
         // Limit first hour to maximum of 1
         if (isFirstHour && qty > 1) {
             $(this).val(1);
             qty = 1;
         }
-        
+
         // Auto-check/uncheck based on quantity
         if (qty > 0 && !$checkbox.prop('checked')) {
             $checkbox.prop('checked', true);
@@ -121,16 +122,16 @@ updateMultiDay();
             $checkbox.prop('checked', false);
             $(this).prop('disabled', true);
         }
-        
+
         updateTotal();
     });
-    
+
     $('.crockery-qty').on('input', function () {
         // Handle crockery quantities (auto-check logic)
         var $row = $(this).closest('.tariff-row');
         var $checkbox = $row.find('.tariff-item');
         var qty = parseInt($(this).val()) || 0;
-        
+
         if (qty > 0 && !$checkbox.prop('checked')) {
             $checkbox.prop('checked', true);
             $(this).prop('disabled', false);
@@ -138,7 +139,7 @@ updateMultiDay();
             $checkbox.prop('checked', false);
             $(this).prop('disabled', true);
         }
-        
+
         updateDepositSummary();
         updateTotal();
     });
@@ -177,126 +178,165 @@ updateMultiDay();
         $('#deposit-summary').html(out);
     }
 
-    // --- Total calculation
-function updateTotal() {
-    var subtotal = 0;
-    var totalDeposits = 0;
-    
-    // Calculate subtotal (tariffs only, no deposits)
-    $('.tariff-row').each(function () {
-        var $row = $(this);
-        var $cb = $row.find('.tariff-item');
-        var price = parseFloat($cb.data('price')) || 0;
-        var $staticQty = $row.find('.static-qty-display');
-        var $qtyInput = $row.find('.tariff-qty');
-        var qty = 0;
-        if ($staticQty.length && $cb.prop('checked')) qty = 1;
-        else if ($qtyInput.length && !$qtyInput.prop('disabled')) qty = parseInt($qtyInput.val()) || 0;
-        subtotal += price * qty;
-    });
-    
-    // Calculate deposits separately
-    var dep = getDepositState();
-    if (typeof mainHallDepositPrice !== 'undefined' && dep.hall) totalDeposits += Number(mainHallDepositPrice);
-    if (typeof crockeryDepositPrice !== 'undefined' && dep.crockery) totalDeposits += Number(crockeryDepositPrice);
-    
-    // Update display
-    $('#quote-subtotal').text('R ' + subtotal.toFixed(2));
-    $('#quote-total').text('R ' + (subtotal + totalDeposits).toFixed(2));
-}
-
-// --- Hall Hire autofill logic (ENHANCED - stores previous states)
-function autofillHallHireRates() {
-    var space = $('#hbi_space').val();
-    var time = $('#hbi_event_time').val();
-    var startDate = $('#hbi_start_date').val();
-    var endDate = $('#hbi_multi_day').val() == '1' ? $('#hbi_end_date').val() : startDate;
-    var days = (startDate && endDate) ? Math.max(1, Math.floor((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) + 1) : 1;
-    
-    var mainHallDayRateLabel = "Rate per day up to 24h00";
-    var mainHallHourFirstLabel = "Rate per hour: for 1st hour";
-    var mainHallHourAfterLabel = "Rate per hour: after 1st hour";
-
-    // RESET ALL Hall Hire checkboxes/qty to 0 first
-    $('.tariff-row[data-category="Hall Hire Rate"]').each(function () {
-        var $cb = $(this).find('.tariff-item');
-        var $qtyInput = $(this).find('.tariff-qty');
-        
-        // Store previous states for protection against manual changes
-        $cb.data('previous-state', false);
-        $qtyInput.data('previous-value', 0);
-        
-        $cb.prop('checked', false);
-        if ($qtyInput.length) {
-            $qtyInput.val("0").prop('readonly', true); // Make readonly instead of disabled
+    // --- Helper: compute hours per day from the time selector
+    function getPerDayHours() {
+        var time = $('#hbi_event_time').val();
+        if (time === 'Morning') return 4;
+        if (time === 'Afternoon') return 5;
+        if (time === 'Evening') return 6;
+        if (time === 'Custom') {
+            var s = parseInt($('#hbi_custom_start').val() || "8", 10);
+            var e = parseInt($('#hbi_custom_end').val() || "9", 10);
+            if (e <= s) e += 24;
+            return Math.max(0, e - s);
         }
-    });
+        return 0; // Full Day not handled here
+    }
 
-    // Only proceed if Main Hall is selected
-    if (space === "Main Hall" || space === "Both Spaces") {
-        if (time === "Full Day") {
-            // FULL DAY: Only use daily rate
-            $('.tariff-row[data-label="' + mainHallDayRateLabel + '"]').each(function () {
-                var $cb = $(this).find('.tariff-item');
-                var $qtyInput = $(this).find('.tariff-qty');
-                $cb.prop('checked', true).data('previous-state', true);
+    // --- Total calculation (FIXED to use actual quantities)
+    function updateTotal() {
+        var subtotal = 0;
+        var totalDeposits = 0;
+
+        $('.tariff-row').each(function () {
+            var $row = $(this);
+            var $cb = $row.find('.tariff-item');
+            var price = parseFloat($cb.data('price')) || 0;
+            var category = ($cb.data('category') || '').toLowerCase();
+
+            var qty = 0;
+
+            // Prefer bar-qty if present (bar service special case)
+            var $barQty = $row.find('.bar-qty');
+            if ($barQty.length) {
+                qty = parseInt($barQty.val(), 10) || 0;
+            } else {
+                // If there's a numeric input for qty, use it (Hall Hire rows use a hidden input)
+                var $qtyInput = $row.find('.tariff-qty');
+                var $staticQty = $row.find('.static-qty-display');
+
                 if ($qtyInput.length) {
-                    $qtyInput.val(days.toString()).data('previous-value', days);
+                    // For Hall Hire Rate rows, rely on the hidden input regardless of disabled state
+                    if (category === 'hall hire rate') {
+                        qty = parseInt($qtyInput.val(), 10) || 0;
+                    } else {
+                        // For regular items, only count if enabled & checked
+                        if (!$qtyInput.prop('disabled') && $cb.prop('checked')) {
+                            qty = parseInt($qtyInput.val(), 10) || 0;
+                        } else {
+                            qty = 0;
+                        }
+                    }
+                } else if ($staticQty.length) {
+                    // Rows with static quantity display (e.g., spotlights/kitchen)
+                    qty = $cb.prop('checked') ? (parseInt($staticQty.text(), 10) || 0) : 0;
                 }
-            });
-            
-        } else if (time === "Morning" || time === "Afternoon" || time === "Evening" || time === "Custom") {
-            // PARTIAL DAY: Use hourly rates
-            var duration = 0;
-            
-            if (time === "Morning") { duration = 4; }
-            else if (time === "Afternoon") { duration = 5; }
-            else if (time === "Evening") { duration = 6; }
-            else if (time === "Custom") {
-                var customStart = parseInt($('#hbi_custom_start').val() || "8");
-                var customEnd = parseInt($('#hbi_custom_end').val() || "9");
-                if (customEnd <= customStart) customEnd += 24;
-                duration = customEnd - customStart;
             }
-            
-            var totalFirstHour = days;
-            var totalAfterHour = (duration > 1) ? (days * (duration - 1)) : 0;
-            
-            // Set first hour rate (always limited to quantity of days, max 1 per day)
-            $('.tariff-row[data-label="' + mainHallHourFirstLabel + '"]').each(function () {
+
+            subtotal += price * qty;
+        });
+
+        // Deposits
+        var dep = getDepositState();
+        if (typeof mainHallDepositPrice !== 'undefined' && dep.hall) totalDeposits += Number(mainHallDepositPrice);
+        if (typeof crockeryDepositPrice !== 'undefined' && dep.crockery) totalDeposits += Number(crockeryDepositPrice);
+
+        // Update display
+        $('#quote-subtotal').text('R ' + subtotal.toFixed(2));
+        $('#quote-total').text('R ' + (subtotal + totalDeposits).toFixed(2));
+    }
+
+    // --- Hall Hire autofill logic (MINIMAL CHANGES, correct labels/selectors)
+    function autofillHallHireRates() {
+        var space = $('#hbi_space').val();
+        var time = $('#hbi_event_time').val();
+        var startDate = $('#hbi_start_date').val();
+        var endDate = ($('#hbi_multi_day').val() == '1') ? $('#hbi_end_date').val() : $('#hbi_start_date').val();
+
+        if (!startDate) return;
+        if (!endDate) endDate = startDate;
+
+        var start = new Date(startDate);
+        var end = new Date(endDate);
+        var days = Math.max(1, Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1);
+
+        // Label strings MUST match your PHP labels
+        var mainHallDayRateLabel   = "Rate per day up to 24h00";
+        var mainHallHourFirstLabel = "Rate per hour: for 1st hour";
+        var mainHallHourAfterLabel = "Rate per hour: after 1st hour";
+        var meetingRoomPerHourLabel = "Meeting room: per hour";
+
+        // Helpers to reset/set rows by label
+        function resetRow(label) {
+            $('.tariff-row[data-label="' + label + '"]').each(function () {
                 var $cb = $(this).find('.tariff-item');
                 var $qtyInput = $(this).find('.tariff-qty');
                 var $staticQty = $(this).find('.static-qty-display');
-                $cb.prop('checked', true).data('previous-state', true);
-                if ($qtyInput.length) {
-                    $qtyInput.val(totalFirstHour.toString()).data('previous-value', totalFirstHour);
-                }
-                if ($staticQty.length) {
-                    $staticQty.text(totalFirstHour.toString());
-                }
+                $cb.prop('checked', false).data('previous-state', false);
+                if ($qtyInput.length) $qtyInput.val("0").data('previous-value', 0);
+                if ($staticQty.length) $staticQty.text("0");
             });
-            
-            // Set additional hours rate
-            if (totalAfterHour > 0) {
-                $('.tariff-row[data-label="' + mainHallHourAfterLabel + '"]').each(function () {
-                    var $cb = $(this).find('.tariff-item');
-                    var $qtyInput = $(this).find('.tariff-qty');
-                    var $staticQty = $(this).find('.static-qty-display');
-                    $cb.prop('checked', true).data('previous-state', true);
-                    if ($qtyInput.length) {
-                        $qtyInput.val(totalAfterHour.toString()).data('previous-value', totalAfterHour);
-                    }
-                    if ($staticQty.length) {
-                        $staticQty.text(totalAfterHour.toString());
-                    }
-                });
-            }
         }
+        function setRowQty(label, qty) {
+            $('.tariff-row[data-label="' + label + '"]').each(function () {
+                var $cb = $(this).find('.tariff-item');
+                var $qtyInput = $(this).find('.tariff-qty');
+                var $staticQty = $(this).find('.static-qty-display');
+                $cb.prop('checked', qty > 0).data('previous-state', qty > 0);
+                if ($qtyInput.length) $qtyInput.val(String(qty)).data('previous-value', qty);
+                if ($staticQty.length) $staticQty.text(String(qty));
+            });
+        }
+
+        // Always start from a clean slate for Hall Hire items
+        [mainHallDayRateLabel, mainHallHourFirstLabel, mainHallHourAfterLabel, meetingRoomPerHourLabel].forEach(resetRow);
+
+        // --- Main Hall / Both Spaces
+        if (space === "Main Hall" || space === "Both Spaces") {
+            if (time === "Full Day") {
+                // Day rate = one per day; hourly rates zeroed
+                setRowQty(mainHallDayRateLabel, days);
+            } else {
+                // Not full day → day rate must be 0
+                setRowQty(mainHallDayRateLabel, 0);
+
+                var perDayHours = getPerDayHours(); // (Morning=4, Afternoon=5, Evening=6, Custom=calc)
+                if (perDayHours > 0) {
+                    // First hour → 1 per each selected day
+                    setRowQty(mainHallHourFirstLabel, days);
+
+                    // After first hour → (hours-1) per day × days
+                    var afterHoursTotal = Math.max(0, perDayHours - 1) * days;
+                    setRowQty(mainHallHourAfterLabel, afterHoursTotal);
+                }
+            }
+
+            // Ensure Meeting Room per hour is reset when not selected
+            setRowQty(meetingRoomPerHourLabel, 0);
+        }
+
+        // --- Meeting Room
+        if (space === "Meeting Room") {
+            // Reset any Main Hall rates
+            setRowQty(mainHallDayRateLabel, 0);
+            setRowQty(mainHallHourFirstLabel, 0);
+            setRowQty(mainHallHourAfterLabel, 0);
+
+            var qtyHours;
+            if (time === "Full Day") {
+                // Full-day Meeting Room = 8 hours per day selected
+                qtyHours = 8 * days;
+            } else {
+                var perDayHoursMR = getPerDayHours();
+                qtyHours = Math.max(0, perDayHoursMR) * days;
+            }
+            setRowQty(meetingRoomPerHourLabel, qtyHours);
+        }
+
+        // Update deposit + totals
+        updateDepositSummary();
+        updateTotal();
     }
-    
-    updateDepositSummary();
-    updateTotal();
-}
 
     $('#hbi_space').on('change', autofillHallHireRates);
     $('#hbi_start_date, #hbi_end_date').on('change', autofillHallHireRates);
