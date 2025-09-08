@@ -94,6 +94,35 @@ class HBI_Invoices {
     }
 
     /**
+     * Normalize time strings for display.
+     * Accepts "9", "09", "09:00", "09:00:00" and returns "09:00"
+     */
+    private static function format_time( $time ) {
+        $time = trim( (string) $time );
+        if ( $time === '' ) return '';
+        // single hour like "9" or "09"
+        if ( preg_match( '/^\d{1,2}$/', $time ) ) {
+            return str_pad( $time, 2, '0', STR_PAD_LEFT ) . ':00';
+        }
+        // HH:MM:SS -> HH:MM
+        if ( preg_match( '/^\d{1,2}:\d{2}:\d{2}$/', $time ) ) {
+            return substr( $time, 0, 5 );
+        }
+        // HH:MM
+        if ( preg_match( '/^\d{1,2}:\d{2}$/', $time ) ) {
+            // pad hour if needed
+            list( $hh, $mm ) = explode( ':', $time );
+            return str_pad( $hh, 2, '0', STR_PAD_LEFT ) . ':' . $mm;
+        }
+        // otherwise attempt strtotime formatting fallback
+        $ts = strtotime( $time );
+        if ( $ts ) {
+            return date( 'H:i', $ts );
+        }
+        return $time;
+    }
+
+    /**
      * Generate PDF Invoice using TCPDF
      */
     public static function generate_pdf( $invoice_id ) {
@@ -111,7 +140,7 @@ class HBI_Invoices {
 
         // Load TCPDF
         if ( ! class_exists( 'TCPDF' ) ) {
-            $tcpdf_path = HBI_PLUGIN_DIR . 'tcpdf/tcpdf.php';
+            $tcpdf_path = defined('HBI_PLUGIN_DIR') ? HBI_PLUGIN_DIR . 'tcpdf/tcpdf.php' : plugin_dir_path(__FILE__) . '../tcpdf/tcpdf.php';
             if ( file_exists( $tcpdf_path ) ) {
                 require_once $tcpdf_path;
             } else {
@@ -141,11 +170,11 @@ class HBI_Invoices {
         }
 
         // Calculate subtotal and deposits
-        $subtotal = 0;
+        $subtotal = 0.0;
         foreach ( $regular_items as $item ) {
             $subtotal += floatval( $item['subtotal'] ?? ( (floatval($item['quantity'] ?? 0) * floatval($item['price'] ?? 0)) ) );
         }
-        $deposit_total = 0;
+        $deposit_total = 0.0;
         foreach ( $deposit_items as $item ) {
             $deposit_total += floatval( $item['subtotal'] ?? ( (floatval($item['quantity'] ?? 0) * floatval($item['price'] ?? 0)) ) );
         }
@@ -166,7 +195,7 @@ class HBI_Invoices {
             "****Cancellations must be made in writing. Refer to the <a href=\"https://sandbaaihall.co.za/terms-rules-policies/\" target=\"_blank\">Hall Terms, Rules and Policies</a> for details.</em>"
         );
 
-        // Event info
+        // Event info (dates & times)
         $event_title    = get_post_meta( $invoice_id, '_hbi_event_title', true );
         $start_date     = get_post_meta( $invoice_id, '_hbi_start_date', true );
         $end_date       = get_post_meta( $invoice_id, '_hbi_end_date', true );
@@ -175,6 +204,54 @@ class HBI_Invoices {
         $customer_org   = get_post_meta( $invoice_id, '_hbi_organization', true );
         $customer_phone = get_post_meta( $invoice_id, '_hbi_customer_phone', true );
 
+        // Determine times for display (priority):
+        // 1) invoice custom times: _hbi_custom_start/_hbi_custom_end
+        // 2) invoice event_time textual (use simple mapping)
+        // 3) linked event post meta _event_start_time/_event_end_time (as saved by Event Manager)
+        $start_time = '';
+        $end_time = '';
+
+        $custom_start = get_post_meta( $invoice_id, '_hbi_custom_start', true );
+        $custom_end   = get_post_meta( $invoice_id, '_hbi_custom_end', true );
+
+        if ( ! empty( $custom_start ) && ! empty( $custom_end ) ) {
+            $start_time = self::format_time( $custom_start );
+            $end_time   = self::format_time( $custom_end );
+        } elseif ( ! empty( $event_time ) && empty( $custom_start ) && empty( $custom_end ) ) {
+            // Map common labels to times (display only). This mapping is used only if no custom or event post times present.
+            $map = array(
+                'Full Day' => array( '08:00', '23:59' ),
+                'Full day' => array( '08:00', '23:59' ),
+                'Morning'  => array( '08:00', '12:00' ),
+                'Afternoon'=> array( '13:00', '18:00' ),
+                'Evening'  => array( '18:00', '23:59' ),
+            );
+            if ( isset( $map[ $event_time ] ) ) {
+                $start_time = $map[ $event_time ][0];
+                $end_time   = $map[ $event_time ][1];
+            }
+        }
+
+        // If still empty, try linked event meta (Event Manager)
+        if ( empty( $start_time ) || empty( $end_time ) ) {
+            $linked_event = get_post_meta( $invoice_id, '_hbi_event_id', true );
+            if ( $linked_event ) {
+                $ev_start = get_post_meta( $linked_event, '_event_start_time', true );
+                $ev_end   = get_post_meta( $linked_event, '_event_end_time', true );
+                if ( ! empty( $ev_start ) && empty( $start_time ) ) {
+                    $start_time = self::format_time( $ev_start );
+                }
+                if ( ! empty( $ev_end ) && empty( $end_time ) ) {
+                    $end_time = self::format_time( $ev_end );
+                }
+            }
+        }
+
+        // Format dates for display (keep original storage intact)
+        $start_date_display = $start_date ? @date_i18n( 'd M Y', strtotime( $start_date ) ) : '';
+        $end_date_display   = $end_date ? @date_i18n( 'd M Y', strtotime( $end_date ) ) : '';
+
+        // Start building HTML
         $html  = '<style>
             body { font-family: DejaVu Sans, sans-serif; font-size:10px; }
             h1 { font-size:14px; margin-bottom:6px; }
@@ -212,26 +289,45 @@ class HBI_Invoices {
                  esc_html( $customer_email ) . '<br/>' .
                  esc_html( $customer_phone ) . '</td>';
         $html .= '<td width="50%"><strong>EVENT</strong><br/>' .
-                 esc_html( $event_title ) . '<br/>' .
-                 esc_html( $start_date ) . ' – ' . esc_html( $end_date );
-$custom_start = get_post_meta( $invoice_id, '_hbi_custom_start', true );
-$custom_end = get_post_meta( $invoice_id, '_hbi_custom_end', true );
+                 esc_html( $event_title ) . '<br/>';
+        $html .= esc_html( $start_date_display );
+        if ( $end_date_display && $end_date_display !== $start_date_display ) {
+            $html .= ' – ' . esc_html( $end_date_display );
+        }
 
-// Helper function: ensure "HH" becomes "HH:00", "HH:MM" stays as is
-function format_time($time) {
-    $time = trim($time);
-    if (preg_match('/^\d{1,2}$/', $time)) {
-        return $time . ':00';
+// --- Time display: use the same logic as in emails ---
+$linked_event = get_post_meta($invoice_id, '_hbi_event_id', true);
+$start_date   = get_post_meta($invoice_id, '_hbi_start_date', true);
+$end_date     = get_post_meta($invoice_id, '_hbi_end_date', true);
+
+$start_time   = get_post_meta($invoice_id, '_hbi_start_time', true);
+$end_time     = get_post_meta($invoice_id, '_hbi_end_time', true);
+
+// Fallback: if invoice has no times, fetch from linked Event Manager event
+if ($linked_event) {
+    if (empty($start_time)) {
+        $start_time = get_post_meta($linked_event, '_event_start_time', true);
     }
-    return $time;
+    if (empty($end_time)) {
+        $end_time = get_post_meta($linked_event, '_event_end_time', true);
+    }
 }
 
-if (!empty($custom_start) && !empty($custom_end)) {
-    $html .= '<br/><strong>Time:</strong> ' . esc_html(format_time($custom_start)) . ' – ' . esc_html(format_time($custom_end));
-} elseif (!empty($event_time)) {
-    $formatted_time = (strlen($event_time) === 2) ? $event_time . ':00' : $event_time;
-    $html .= '<br/><strong>Time:</strong> ' . esc_html($formatted_time);
+// Format display
+$time_display = '';
+if ($start_time && $end_time) {
+    $time_display = date('H:i', strtotime($start_time)) . ' – ' . date('H:i', strtotime($end_time));
+} elseif ($start_time) {
+    $time_display = date('H:i', strtotime($start_time));
+} elseif ($end_time) {
+    $time_display = date('H:i', strtotime($end_time));
 }
+
+if ($time_display) {
+    $html .= '<br/><strong>Time:</strong> ' . esc_html($time_display);
+}
+
+
         $html .= '<br/>' . esc_html( $space ) . '</td>';
         $html .= '</tr></table>';
 
@@ -308,6 +404,7 @@ if (!empty($custom_start) && !empty($custom_end)) {
 
     /**
      * Render full invoice editor (customer + items + total)
+     * (Unchanged from your original code — unchanged logic)
      */
     public function render_invoice_editor_box( $post ) {
         $invoice_id = $post->ID;
@@ -529,7 +626,7 @@ if (!empty($custom_start) && !empty($custom_end)) {
     }
 
     /**
-     * Save editable invoice details
+     * Save editable invoice details (via normal WP save)
      */
     public function save_invoice_details( $post_id ) {
         if ( get_post_status($post_id) === 'auto-draft' ) return;
