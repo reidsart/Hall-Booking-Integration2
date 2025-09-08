@@ -14,7 +14,24 @@ class HBI_Booking_Handler {
         // Handle logged-in and guest submissions
         add_action( 'admin_post_nopriv_hbi_process_booking', array( $this, 'process_booking' ) );
         add_action( 'admin_post_hbi_process_booking', array( $this, 'process_booking' ) );
+        add_action( 'init', array( $this, 'setup_mail_from' ) );
     }
+    
+/**
+ * Ensure booking emails come from booking@sandbaaihall.co.za
+ */
+public function setup_mail_from() {
+    add_filter( 'wp_mail_from', array( $this, 'mail_from' ) );
+    add_filter( 'wp_mail_from_name', array( $this, 'mail_from_name' ) );
+}
+
+public function mail_from( $original_email ) {
+    return 'booking@sandbaaihall.co.za';
+}
+
+public function mail_from_name( $original_name ) {
+    return 'Sandbaai Hall';
+}
 
     /**
      * Process the booking form submission
