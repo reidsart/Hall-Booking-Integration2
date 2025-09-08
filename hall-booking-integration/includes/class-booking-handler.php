@@ -57,6 +57,17 @@ public function mail_from_name( $original_name ) {
         $start_date = sanitize_text_field( $_POST['hbi_start_date'] );
         $multi_day  = !empty($_POST['hbi_multi_day']);
         $end_date   = $multi_day ? sanitize_text_field( $_POST['hbi_end_date'] ) : $start_date;
+        
+        // -- Require Terms agreement --
+        if ( empty( $_POST['hbi_agree_terms'] ) ) {
+            wp_die( 'You must agree to the Hall Terms, Rules & Policies before submitting a booking. Please go back and check the box. <a href="' . esc_url( 'https://sandbaaihall.co.za/terms-rules-policies/' ) . '">View Terms</a>' );
+        }
+
+        // -- Prevent selecting today or past dates (start must be in the future) --
+        $today = date_i18n( 'Y-m-d' ); // WordPress-local date
+        if ( strtotime( $start_date ) <= strtotime( $today ) ) {
+            wp_die( 'Invalid start date. Please choose a date in the future (after ' . esc_html( $today ) . ').' );
+        }
 
         // Times
         $event_time   = sanitize_text_field( $_POST['hbi_event_time'] ?? '' );
@@ -142,6 +153,7 @@ $event_id = wp_insert_post(array(
     'post_title'     => $title,
     'post_type'      => 'event',
     'post_status'    => 'draft',
+    'post_author'    => 4, // Booking Admin user (user_id 4)
     'post_content'   => $event_description,
     'meta_input'     => array(
         '_event_start_date' => $start_date,
@@ -152,9 +164,9 @@ $event_id = wp_insert_post(array(
         '_event_guest_count'=> $guest_count,
         '_event_privacy'    => $event_privacy,
         '_event_title'      => $event_title,
-        
     ),
 ));
+
 // Map 'space' -> location_type & location (Events Manager expects these meta keys in many setups)
 $space_to_location = array(
     'Main Hall'    => array('location_type' => 'location', 'location' => '1', 'category' => 'main-hall-booking'),
@@ -327,7 +339,8 @@ $customer_subject = "Sandbaai Hall — Booking Request Received (#" . esc_html( 
 $customer_message = "<p>Dear " . esc_html($name) . ",</p>";
 $customer_message .= "<p>Thank you — we received your booking request. Below are the details:</p>";
 $customer_message .= $invoice_summary_html;
-$customer_message .= "<p>We will review and send you a final invoice once the booking is approved by an admin.</p>";
+$customer_message .= "<p>We will review and send you an invoice.</p>";
+$customer_message .= "<p>Bookings are confirmed when invoice is paid.</p>";
 $customer_headers = array('Content-Type: text/html; charset=UTF-8');
 wp_mail( $customer_to, $customer_subject, $customer_message, $customer_headers );
 
@@ -347,7 +360,10 @@ $admin_message .= $invoice_summary_html;
 $nonce = wp_create_nonce( 'hbi_approve_invoice_' . $invoice_id );
 $approve_url = admin_url( 'admin-post.php?action=hbi_approve_invoice&invoice_id=' . $invoice_id . '&_wpnonce=' . $nonce );
 
-$admin_message .= '<p><a href="' . esc_url( $approve_url ) . '" style="display:inline-block;padding:10px 14px;background:#1e73be;color:#fff;border-radius:6px;text-decoration:none;">Approve & Generate Invoice PDF</a></p>';
+// Wrap link with wp_login_url so clicking works for logged-out recipients — they will be prompted to log in and then land on the approve URL.
+$approve_link = wp_login_url( $approve_url );
+
+$admin_message .= '<p><a href="' . esc_url( $approve_link ) . '" style="display:inline-block;padding:10px 14px;background:#1e73be;color:#fff;border-radius:6px;text-decoration:none;">Approve & Generate Invoice PDF</a></p>';
 
 $admin_headers = array('Content-Type: text/html; charset=UTF-8');
 wp_mail( $admin_to, $admin_subject, $admin_message, $admin_headers );
