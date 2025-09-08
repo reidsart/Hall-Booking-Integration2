@@ -160,8 +160,8 @@ class HBI_Invoices {
             "Reference: Use your Invoice Number"
         );
         $terms = get_option( 'hbi_terms',
-           "<em>*Payment is due within 10 days of event date." .
-           "**Main Hall bookings are confirmed after payment of deposit." .
+           "<em>*Main Hall bookings are confirmed after payment of deposit." .
+           "**Full payment is due within 10 days of event date." .
             "***Refundable deposits will be returned within 7 working days after inspection, provided no damages or losses occurred." .
             "****Cancellations must be made in writing. Refer to the <a href=\"https://sandbaaihall.co.za/terms-rules-policies/\" target=\"_blank\">Hall Terms, Rules and Policies</a> for details.</em>"
         );
@@ -214,10 +214,24 @@ class HBI_Invoices {
         $html .= '<td width="50%"><strong>EVENT</strong><br/>' .
                  esc_html( $event_title ) . '<br/>' .
                  esc_html( $start_date ) . ' – ' . esc_html( $end_date );
-        if (!empty($event_time)) {
-            $formatted_time = (strlen($event_time) === 2) ? $event_time . ':00' : $event_time;
-            $html .= '<br/><strong>Time:</strong> ' . esc_html($formatted_time);
-        }
+$custom_start = get_post_meta( $invoice_id, '_hbi_custom_start', true );
+$custom_end = get_post_meta( $invoice_id, '_hbi_custom_end', true );
+
+// Helper function: ensure "HH" becomes "HH:00", "HH:MM" stays as is
+function format_time($time) {
+    $time = trim($time);
+    if (preg_match('/^\d{1,2}$/', $time)) {
+        return $time . ':00';
+    }
+    return $time;
+}
+
+if (!empty($custom_start) && !empty($custom_end)) {
+    $html .= '<br/><strong>Time:</strong> ' . esc_html(format_time($custom_start)) . ' – ' . esc_html(format_time($custom_end));
+} elseif (!empty($event_time)) {
+    $formatted_time = (strlen($event_time) === 2) ? $event_time . ':00' : $event_time;
+    $html .= '<br/><strong>Time:</strong> ' . esc_html($formatted_time);
+}
         $html .= '<br/>' . esc_html( $space ) . '</td>';
         $html .= '</tr></table>';
 
@@ -686,7 +700,8 @@ class HBI_Invoices {
         $subject = 'Sandbaai Hall — Invoice #' . get_post_meta( $invoice_id, '_hbi_invoice_number', true );
         $message = '<p>Dear ' . esc_html( $customer_name ) . ',</p>';
         $message .= '<p>Please find attached your invoice for the requested booking. Payment instructions are on the invoice.</p>';
-        $message .= '<p>If you have questions, reply to this email.</p>';
+        $message .= '<p>Bookings are secure once payment is received.</p>';
+        $message .= '<p>If you have questions or special requests, simply reply to this email.</p>';
         $headers = array('Content-Type: text/html; charset=UTF-8');
 
         wp_mail( $customer_email, $subject, $message, $headers, $attachments );
