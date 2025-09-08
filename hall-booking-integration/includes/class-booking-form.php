@@ -268,7 +268,31 @@ class HBI_Booking_Form {
                     <strong>Total: <span id="quote-total">R 0.00</span></strong>
                 </div>
             </div>
+            <p>
+  <label style="font-size:14px;">
+    <input type="checkbox" name="hbi_agree_terms" value="1" required />
+    I agree to the <a href="https://sandbaaihall.co.za/terms-rules-policies/" target="_blank" rel="noopener">Terms, Rules &amp; Policies</a>.
+  </label>
+</p>
             <button type="submit" class="button button-primary" style="margin-top:20px;">Submit Booking Request</button>
+ 
+            <script>
+jQuery(function($){
+    // 1) set start date min to tomorrow (client-side convenience)
+    (function setMinDate(){
+        var d = new Date();
+        d.setDate(d.getDate() + 1); // tomorrow
+        var yyyy = d.getFullYear();
+        var mm = ('0' + (d.getMonth() + 1)).slice(-2);
+        var dd = ('0' + d.getDate()).slice(-2);
+        var min = yyyy + '-' + mm + '-' + dd;
+        $('input[name="hbi_start_date"]').attr('min', min);
+        // also restrict end date if present
+        $('input[name="hbi_end_date"]').attr('min', min);
+    })();
+});
+</script>
+            
         </form>
         <script>
         var mainHallDepositPrice = <?php echo json_encode($main_hall_deposit_price); ?>;
