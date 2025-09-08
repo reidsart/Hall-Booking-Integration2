@@ -46,43 +46,29 @@ updateMultiDay();
         return false;
     });
 
-// --- Tariff selection and quantity
-$('.tariff-item').on('change', function () {
-    var $row = $(this).closest('.tariff-row');
-    var $qtyInput = $row.find('.tariff-qty');
-    var $staticQty = $row.find('.static-qty-display');
-    var $barDisplay = $row.find('.bar-display');
-    var $barQty = $row.find('.bar-qty');
-    var label = $(this).data('label') || '';
-    
-    if ($(this).prop('checked')) {
-        if ($qtyInput.length) {
-            $qtyInput.val("1").prop('disabled', false);
+    // --- Tariff selection and quantity
+    $('.tariff-item').on('change', function () {
+        var $row = $(this).closest('.tariff-row');
+        var $qtyInput = $row.find('.tariff-qty');
+        var $staticQty = $row.find('.static-qty-display');
+        if ($(this).prop('checked')) {
+            if ($qtyInput.length) {
+                $qtyInput.val("1").prop('disabled', false);
+            }
+            if ($staticQty.length) {
+                $staticQty.text("1");
+            }
+        } else {
+            if ($qtyInput.length) {
+                $qtyInput.val("0").prop('disabled', true);
+            }
+            if ($staticQty.length) {
+                $staticQty.text("0");
+            }
         }
-        if ($staticQty.length) {
-            $staticQty.text("1");
-        }
-        // Handle bar service
-        if ($barDisplay.length && label.toLowerCase().indexOf('bar service') !== -1) {
-            $barDisplay.text("Yes").css({'background': '#e8f5e8', 'color': '#2e7d2e'});
-            $barQty.val("1");
-        }
-    } else {
-        if ($qtyInput.length) {
-            $qtyInput.val("0").prop('disabled', true);
-        }
-        if ($staticQty.length) {
-            $staticQty.text("0");
-        }
-        // Handle bar service
-        if ($barDisplay.length && label.toLowerCase().indexOf('bar service') !== -1) {
-            $barDisplay.text("No").css({'background': '#f0f0f0', 'color': '#666'});
-            $barQty.val("0");
-        }
-    }
-    updateDepositSummary();
-    updateTotal();
-});
+        updateDepositSummary();
+        updateTotal();
+    });
     $('.crockery-qty').on('input', function () {
         updateDepositSummary();
         updateTotal();
@@ -128,46 +114,25 @@ function updateTotal() {
     var subtotal = 0;
     var totalDeposits = 0;
     
-    // Calculate subtotal from all tariff items
+    // Calculate subtotal (tariffs only, no deposits)
     $('.tariff-row').each(function () {
         var $row = $(this);
         var $cb = $row.find('.tariff-item');
-        
-        if ($cb.prop('checked')) {
-            var price = parseFloat($cb.data('price')) || 0;
-            var qty = 0;
-            
-            // Check if this item has a quantity input or static display
-            var $qtyInput = $row.find('.tariff-qty');
-            var $staticQty = $row.find('.static-qty-display');
-            
-            if ($staticQty.length) {
-                // Items with static quantity display (like Kitchen Hire, Spotlights)
-                qty = parseInt($staticQty.text()) || 0;
-            } else if ($qtyInput.length) {
-                // Items with quantity input - only count if not disabled
-                if (!$qtyInput.prop('disabled')) {
-                    qty = parseInt($qtyInput.val()) || 0;
-                }
-            } else {
-                // Simple checkbox items (no quantity input)
-                qty = 1;
-            }
-            
-            subtotal += price * qty;
-        }
+        var price = parseFloat($cb.data('price')) || 0;
+        var $staticQty = $row.find('.static-qty-display');
+        var $qtyInput = $row.find('.tariff-qty');
+        var qty = 0;
+        if ($staticQty.length && $cb.prop('checked')) qty = 1;
+        else if ($qtyInput.length && !$qtyInput.prop('disabled')) qty = parseInt($qtyInput.val()) || 0;
+        subtotal += price * qty;
     });
     
     // Calculate deposits separately
     var dep = getDepositState();
-    if (typeof mainHallDepositPrice !== 'undefined' && dep.hall) {
-        totalDeposits += Number(mainHallDepositPrice);
-    }
-    if (typeof crockeryDepositPrice !== 'undefined' && dep.crockery) {
-        totalDeposits += Number(crockeryDepositPrice);
-    }
+    if (typeof mainHallDepositPrice !== 'undefined' && dep.hall) totalDeposits += Number(mainHallDepositPrice);
+    if (typeof crockeryDepositPrice !== 'undefined' && dep.crockery) totalDeposits += Number(crockeryDepositPrice);
     
-    // Update the display
+    // Update display
     $('#quote-subtotal').text('R ' + subtotal.toFixed(2));
     $('#quote-total').text('R ' + (subtotal + totalDeposits).toFixed(2));
 }
@@ -192,8 +157,8 @@ function autofillHallHireRates() {
         if ($qtyInput.length) $qtyInput.val("0").prop('disabled', true);
     });
 
-    // Only proceed if Main Hall, Meeting Room, or Both Spaces is selected
-    if (space === "Main Hall" || space === "Meeting Room" || space === "Both Spaces") {
+    // Only proceed if Main Hall is selected
+    if (space === "Main Hall" || space === "Both Spaces") {
         if (time === "Full Day") {
             // FULL DAY: Only use daily rate, ensure hourly rates are 0
             $('.tariff-row[data-label="' + mainHallDayRateLabel + '"]').each(function () {
