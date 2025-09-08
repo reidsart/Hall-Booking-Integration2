@@ -47,6 +47,42 @@ function hbi_get_tariff_label( $tariff_id ) {
     return 'Unknown tariff';
 }
 
+// Tariffs Display Shortcode
+add_shortcode('sandbaai_hall_tariffs', 'hbi_render_tariffs_table');
+
+function hbi_render_tariffs_table() {
+    $tariffs = get_option('hall_tariffs', []);
+    if (empty($tariffs)) {
+        return '<p>No tariffs have been set.</p>';
+    }
+
+    ob_start();
+
+    echo '<div class="hbi-tariffs-table">';
+    echo '<h2>Sandbaai Hall Tariffs</h2>';
+    echo '<table style="width:100%;border-collapse:collapse;border:1px solid #ddd;">';
+    echo '<thead><tr style="background:#f9f9f9;"><th style="border:1px solid #ddd;padding:6px;text-align:left;">Category</th><th style="border:1px solid #ddd;padding:6px;text-align:left;">Item</th><th style="border:1px solid #ddd;padding:6px;text-align:right;">Price (R)</th></tr></thead><tbody>';
+
+    foreach ($tariffs as $row) {
+        $category = esc_html($row['category'] ?? '');
+        $label    = esc_html($row['label'] ?? '');
+        $price    = number_format(floatval($row['price'] ?? 0), 2);
+
+        echo '<tr>';
+        echo '<td style="border:1px solid #ddd;padding:6px;">' . $category . '</td>';
+        echo '<td style="border:1px solid #ddd;padding:6px;">' . $label . '</td>';
+        echo '<td style="border:1px solid #ddd;padding:6px;text-align:right;">' . $price . '</td>';
+        echo '</tr>';
+    }
+
+    echo '</tbody></table>';
+    echo '<p style="margin-top:15px;"><em>All prices subject to change. Please confirm when booking.</em></p>';
+    echo '</div>';
+
+    return ob_get_clean();
+}
+
+
 /**
  * Build booking summary as HTML (for thank you page / email)
  */
