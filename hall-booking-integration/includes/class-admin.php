@@ -14,6 +14,12 @@ class HBI_Admin {
         add_action( 'add_meta_boxes', array( $this, 'register_invoice_metabox' ) );
         add_action( 'admin_post_hbi_resend_invoice', array( $this, 'resend_invoice_action' ) );
         add_action( 'admin_menu', array( $this, 'add_tariff_admin_menu' ) );
+
+        // Remove editor & publish box for invoices and add Admin Notes box
+        add_action( 'admin_init', array( $this, 'cleanup_invoice_edit_screen' ) );
+
+        // AJAX handler for Admin Notes
+        add_action( 'wp_ajax_hbi_save_admin_notes', array( $this, 'ajax_save_admin_notes' ) );
     }
 
     public function add_tariff_admin_menu() {
@@ -28,23 +34,33 @@ class HBI_Admin {
     }
 
     public function render_tariff_admin_page() {
+        // Prevent double rendering of tariffs
+        static $already_rendered = false;
+        if ($already_rendered) {
+            return;
+        }
+        $already_rendered = true;
         $tariffs = get_option('hall_tariffs', []);
-        // Always flatten for display
-        if ($tariffs && (is_array(reset($tariffs)) && (isset(reset($tariffs)['category']) === false))) {
-            $new_tariffs = [];
-            foreach ($tariffs as $category => $label_prices) {
-                if (!is_array($label_prices)) continue;
-                foreach ($label_prices as $label => $price) {
-                    $new_tariffs[] = [
-                        'category' => $category,
-                        'label' => $label,
-                        'price' => $price
-                    ];
+        // Normalize stored format to flat array if needed
+        if ($tariffs && is_array($tariffs) && isset($tariffs[0]) && is_array($tariffs[0]) && isset($tariffs[0]['category']) && isset($tariffs[0]['label'])) {
+            // already flat
+        } else {
+            // if associative by category -> convert to flat
+            if (is_array($tariffs)) {
+                $new = [];
+                foreach ($tariffs as $cat => $labels) {
+                    if (!is_array($labels)) continue;
+                    foreach ($labels as $label => $price) {
+                        $new[] = ['category' => $cat, 'label' => $label, 'price' => $price];
+                    }
+                }
+                if (!empty($new)) {
+                    $tariffs = $new;
+                    update_option('hall_tariffs', $tariffs);
                 }
             }
-            $tariffs = $new_tariffs;
-            update_option('hall_tariffs', $tariffs);
         }
+
         // Handle CRUD actions
         if (isset($_POST['hbi_tariff_action']) && check_admin_referer('hbi_tariff_action')) {
             switch ($_POST['hbi_tariff_action']) {
@@ -152,7 +168,7 @@ class HBI_Admin {
     }
 
     /**
-     * Register Invoice Admin Metabox
+     * Register Invoice Admin Metabox (Invoice Actions)
      */
     public function register_invoice_metabox() {
         add_meta_box(
@@ -161,6 +177,16 @@ class HBI_Admin {
             array( $this, 'render_invoice_metabox' ),
             'hbi_invoice',
             'side',
+            'high'
+        );
+
+        // Add Admin Notes box
+        add_meta_box(
+            'hbi_admin_notes',
+            'Admin Notes',
+            array( $this, 'render_admin_notes_metabox' ),
+            'hbi_invoice',
+            'normal',
             'high'
         );
     }
@@ -192,6 +218,90 @@ class HBI_Admin {
     }
 
     /**
+     * Render Admin Notes Metabox (with inline AJAX saving)
+     */
+    public function render_admin_notes_metabox( $post ) {
+        $notes = get_post_meta( $post->ID, '_hbi_admin_notes', true );
+        $nonce = wp_create_nonce( 'hbi_admin_notes_save_' . $post->ID );
+        ?>
+        <div id="hbi-admin-notes-wrap">
+            <textarea id="hbi_admin_notes_field" style="width:100%;min-height:220px;"><?php echo esc_textarea( $notes ); ?></textarea>
+            <p style="margin-top:8px;">
+                <button type="button" class="button button-primary" id="hbi_save_notes_btn">Save Notes</button>
+                <span id="hbi_save_notes_msg" style="margin-left:12px;"></span>
+            </p>
+        </div>
+
+        <script type="text/javascript">
+        (function($){
+            $(document).ready(function(){
+                $('#hbi_save_notes_btn').on('click', function(e){
+                    e.preventDefault();
+                    var postId = <?php echo intval($post->ID); ?>;
+                    var notes = $('#hbi_admin_notes_field').val();
+                    $('#hbi_save_notes_msg').css('color','black').text('Saving...');
+                    $.post(ajaxurl, {
+                        action: 'hbi_save_admin_notes',
+                        post_id: postId,
+                        notes: notes,
+                        nonce: '<?php echo esc_js($nonce); ?>'
+                    }, function(resp){
+                        if (resp && resp.success) {
+                            $('#hbi_save_notes_msg').css('color','green').text(resp.data);
+                        } else {
+                            var msg = (resp && resp.data) ? resp.data : 'Save failed';
+                            $('#hbi_save_notes_msg').css('color','red').text(msg);
+                        }
+                    }, 'json').fail(function(){
+                        $('#hbi_save_notes_msg').css('color','red').text('AJAX error while saving.');
+                    });
+                });
+            });
+        })(jQuery);
+        </script>
+        <?php
+    }
+
+    /**
+     * AJAX handler: save admin notes
+     */
+    public function ajax_save_admin_notes() {
+        if ( ! current_user_can( 'edit_posts' ) ) {
+            wp_send_json_error( 'Insufficient permissions.' );
+        }
+
+        $post_id = intval( $_POST['post_id'] ?? 0 );
+        $notes   = sanitize_textarea_field( wp_unslash( $_POST['notes'] ?? '' ) );
+        $nonce   = sanitize_text_field( $_POST['nonce'] ?? '' );
+
+        if ( ! $post_id || empty( $nonce ) ) {
+            wp_send_json_error( 'Missing data.' );
+        }
+
+        if ( ! wp_verify_nonce( $nonce, 'hbi_admin_notes_save_' . $post_id ) ) {
+            wp_send_json_error( 'Security check failed.' );
+        }
+
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            wp_send_json_error( 'No permission to edit this invoice.' );
+        }
+
+        update_post_meta( $post_id, '_hbi_admin_notes', $notes );
+        $time = current_time( 'H:i:s' );
+        wp_send_json_success( 'Saved at ' . $time );
+    }
+
+    /**
+     * Remove editor & publish box on invoice edit screen
+     */
+    public function cleanup_invoice_edit_screen() {
+        // Remove the content editor from the invoice post type
+        remove_post_type_support( 'hbi_invoice', 'editor' );
+        // Remove the Publish meta box
+        remove_meta_box( 'submitdiv', 'hbi_invoice', 'side' );
+    }
+
+    /**
      * Resend invoice (same number, new PDF, notify customer)
      */
     public function resend_invoice_action() {
@@ -207,7 +317,7 @@ class HBI_Admin {
         $pdf_url = HBI_Invoices::generate_pdf( $invoice_id );
         update_post_meta( $invoice_id, '_hbi_pdf_url', $pdf_url );
 
-        // Email customer about updated invoice (no lettered number)
+        // Email customer about updated invoice
         $invoice_number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
         $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
         $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
@@ -227,119 +337,5 @@ class HBI_Admin {
     }
 }
 
-/**
- * Clean up Invoice edit screen and add Admin Notes with AJAX save
- */
-
-// Remove Publish box and content editor
-add_action('admin_menu', function() {
-    remove_meta_box('submitdiv', 'hbi_invoice', 'side'); // Publish box
-});
-add_action('admin_init', function() {
-    remove_post_type_support('hbi_invoice', 'editor'); // Big editor
-});
-
-// Add custom Admin Notes meta box
-add_action('add_meta_boxes', function() {
-    add_meta_box(
-        'hbi_admin_notes',
-        'Admin Notes',
-        function($post) {
-            $notes = get_post_meta($post->ID, '_hbi_admin_notes', true);
-            wp_nonce_field('hbi_admin_notes_nonce', 'hbi_admin_notes_nonce_field');
-            echo '<textarea id="hbi_admin_notes_field" style="width:100%;min-height:200px;">'
-                . esc_textarea($notes)
-                . '</textarea>';
-            echo '<p><button type="button" class="button button-primary" id="hbi_save_notes_btn">Save Notes</button></p>';
-            echo '<div id="hbi_save_notes_msg" style="margin-top:5px;"></div>';
-        },
-        'hbi_invoice',
-        'normal',
-        'high'
-    );
-});
-
-// Handle AJAX save
-add_action('wp_ajax_hbi_save_admin_notes', function() {
-    if (!current_user_can('edit_posts')) {
-        wp_send_json_error('No permission');
-    }
-    $post_id = intval($_POST['post_id'] ?? 0);
-    $notes   = sanitize_textarea_field($_POST['notes'] ?? '');
-    update_post_meta($post_id, '_hbi_admin_notes', $notes);
-    wp_send_json_success('Notes saved at ' . current_time('H:i:s'));
-});
-
-// Enqueue JS for AJAX save
-add_action('admin_enqueue_scripts', function($hook) {
-    global $post;
-    if ($hook === 'post.php' && $post && $post->post_type === 'hbi_invoice') {
-        wp_enqueue_script('hbi-admin-notes', plugin_dir_url(__FILE__) . 'js/hbi-admin-notes.js', ['jquery'], false, true);
-        wp_localize_script('hbi-admin-notes', 'HBIAdminNotes', [
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce'    => wp_create_nonce('hbi_admin_notes_nonce')
-        ]);
-    }
-});
-
-// allows approval of invoice with one click on a link
-function hbi_handle_approve_invoice() {
-    if ( ! isset($_GET['invoice_id']) ) {
-        wp_die( 'Invalid invoice request.' );
-    }
-
-    $invoice_id = intval($_GET['invoice_id']);
-
-    // Require login
-    if ( ! is_user_logged_in() ) {
-        auth_redirect(); // WP handles login + redirect back
-    }
-
-    // Verify nonce
-    if ( empty($_GET['_wpnonce']) || ! wp_verify_nonce($_GET['_wpnonce'], 'hbi_approve_invoice_' . $invoice_id ) ) {
-        wp_die( 'Security check failed.' );
-    }
-
-    // Permission check
-    if ( ! current_user_can( 'edit_post', $invoice_id ) ) {
-        wp_die( 'No permission' );
-    }
-
-    // Generate PDF
-    if ( class_exists( 'HBI_Invoices' ) ) {
-        $pdf_url  = HBI_Invoices::generate_pdf( $invoice_id );
-        if ( $pdf_url ) {
-            update_post_meta( $invoice_id, '_hbi_pdf_url', $pdf_url );
-        }
-    }
-
-    // Publish invoice post
-    wp_update_post( array(
-        'ID'          => $invoice_id,
-        'post_status' => 'publish'
-    ) );
-
-    // Send final invoice email to customer
-    $customer_email  = get_post_meta( $invoice_id, '_hbi_customer_email', true );
-    $customer_name   = get_post_meta( $invoice_id, '_hbi_customer_name', true );
-    $pdf_path        = get_post_meta( $invoice_id, '_hbi_pdf_path', true );
-    $attachments     = array();
-
-    if ( ! empty( $pdf_path ) && file_exists( $pdf_path ) ) {
-        $attachments[] = $pdf_path;
-    }
-
-    $invoice_number  = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
-    $subject         = 'Sandbaai Hall — Invoice #' . $invoice_number;
-    $message         = '<p>Dear ' . esc_html( $customer_name ) . ',</p>';
-    $message        .= '<p>Please find attached your invoice for the requested booking. Payment instructions are on the invoice.</p>';
-    $message        .= '<p>If you have questions, reply to this email.</p>';
-    $headers         = array('Content-Type: text/html; charset=UTF-8');
-
-    wp_mail( $customer_email, $subject, $message, $headers, $attachments );
-
-    // Redirect back to invoice edit screen with success message
-    wp_safe_redirect( admin_url( 'post.php?post=' . $invoice_id . '&action=edit&hbi_message=approved' ) );
-    exit;
-}
-add_action( 'admin_post_hbi_approve_invoice', 'hbi_handle_approve_invoice' );
+// instantiate
+new HBI_Admin();
