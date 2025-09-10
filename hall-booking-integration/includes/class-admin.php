@@ -1,27 +1,88 @@
 <?php
 /**
- * Admin Class
+ * Admin Class - Full version with Quick Edit + columns + original features preserved (Resend removed)
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+if ( ! class_exists( 'HBI_Admin' ) ) {
+
 class HBI_Admin {
 
     public function __construct() {
-        // Register only the sidebar "Invoice Actions" box
+        // Register meta boxes + menus
         add_action( 'add_meta_boxes', array( $this, 'register_invoice_metabox' ) );
-        add_action( 'admin_post_hbi_resend_invoice', array( $this, 'resend_invoice_action' ) );
-        add_action( 'admin_menu', array( $this, 'add_tariff_admin_menu' ) );
+        add_action( 'admin_menu', array( $this, 'add_tariff_admin_menu' ), 99 );
 
         // Remove editor & publish box for invoices and add Admin Notes box
         add_action( 'admin_init', array( $this, 'cleanup_invoice_edit_screen' ) );
 
         // AJAX handler for Admin Notes
         add_action( 'wp_ajax_hbi_save_admin_notes', array( $this, 'ajax_save_admin_notes' ) );
+
+        // Manage status changes
+        add_action( 'admin_post_hbi_change_status', array( $this, 'handle_change_status' ) );
+
+        // List table columns (Invoices)
+        add_filter( 'manage_hbi_invoice_posts_columns', array( $this, 'add_invoice_columns' ) );
+        add_action( 'manage_hbi_invoice_posts_custom_column', array( $this, 'render_invoice_columns' ), 10, 2 );
+
+        // Quick Edit support for status
+        add_action( 'quick_edit_custom_box', array( $this, 'quick_edit_custom_box' ), 10, 2 );
+        add_action( 'save_post_hbi_invoice', array( $this, 'save_quick_edit' ) );
+        add_action( 'admin_footer-edit.php', array( $this, 'quick_edit_javascript' ) );
+
+        // Inline admin CSS for badges
+        add_action( 'admin_head', array( $this, 'admin_inline_css' ) );
     }
 
+    /******************************
+     * Change status handler
+     ******************************/
+    public function handle_change_status() {
+        if ( ! current_user_can( 'edit_posts' ) ) {
+            wp_die( 'No permission.' );
+        }
+
+        $invoice_id = intval( $_GET['invoice_id'] ?? 0 );
+        $status = sanitize_text_field( $_GET['status'] ?? '' );
+        $nonce = $_GET['_wpnonce'] ?? '';
+
+        if ( ! $invoice_id || ! wp_verify_nonce( $nonce, 'hbi_change_status_' . $invoice_id ) ) {
+            wp_die( 'Invalid request.' );
+        }
+
+        if ( ! in_array( $status, ['unpaid','deposit','paid'], true ) ) {
+            wp_die( 'Invalid status.' );
+        }
+
+        update_post_meta( $invoice_id, '_hbi_status', $status );
+
+        // Send notifications only when fully paid
+        if ( $status === 'paid' ) {
+            $manager_email = 'manager@sandbaaihall.co.za';
+            wp_mail( $manager_email, 'Invoice Paid', 'Invoice #' . $invoice_id . ' has been marked as Paid.' );
+
+            $items = get_post_meta( $invoice_id, '_hbi_items', true );
+            if ( $items && is_array($items) ) {
+                foreach ( $items as $item ) {
+                    if ( stripos( $item['label'], 'Bar Service' ) !== false ) {
+                        wp_mail( 'bar@sandbaaihall.co.za', 'Bar Service Requested', 'An event with bar service has been paid. Invoice #' . $invoice_id );
+                        break;
+                    }
+                }
+            }
+        }
+
+        wp_redirect( admin_url( 'edit.php?post_type=hbi_invoice' ) );
+        exit;
+    }
+
+    /******************************
+     * Tariff admin menu & UI
+     ******************************/
     public function add_tariff_admin_menu() {
         add_submenu_page(
             'edit.php?post_type=hbi_invoice',
@@ -34,12 +95,11 @@ class HBI_Admin {
     }
 
     public function render_tariff_admin_page() {
-        // Prevent double rendering of tariffs
+        // Prevent double rendering
         static $already_rendered = false;
-        if ($already_rendered) {
-            return;
-        }
+        if ($already_rendered) return;
         $already_rendered = true;
+
         $tariffs = get_option('hall_tariffs', []);
         // Normalize stored format to flat array if needed
         if ($tariffs && is_array($tariffs) && isset($tariffs[0]) && is_array($tariffs[0]) && isset($tariffs[0]['category']) && isset($tariffs[0]['label'])) {
@@ -167,9 +227,9 @@ class HBI_Admin {
         <?php
     }
 
-    /**
-     * Register Invoice Admin Metabox (Invoice Actions)
-     */
+    /******************************
+     * Invoice meta boxes registration
+     ******************************/
     public function register_invoice_metabox() {
         add_meta_box(
             'hbi_invoice_actions',
@@ -191,12 +251,14 @@ class HBI_Admin {
         );
     }
 
-    /**
-     * Render Invoice Actions Metabox
-     */
+    /******************************
+     * Render Invoice Actions metabox
+     * (Resend removed; keep Approve & Send and status display)
+     ******************************/
     public function render_invoice_metabox( $post ) {
         $invoice_number = get_post_meta( $post->ID, '_hbi_invoice_number', true );
         $pdf_url = get_post_meta( $post->ID, '_hbi_pdf_url', true );
+        $status = get_post_meta( $post->ID, '_hbi_status', true );
 
         echo '<p><strong>Invoice Number:</strong> ' . esc_html( $invoice_number ) . '</p>';
 
@@ -204,22 +266,19 @@ class HBI_Admin {
             echo '<p><a href="' . esc_url( $pdf_url ) . '" target="_blank">View Current PDF</a></p>';
         }
 
-        // Approve & Send
+        // Status label in metabox
+        $label = $status ? ucfirst( $status ) : 'Unpaid';
+        $color = ( $status === 'paid' ) ? 'green' : ( $status === 'deposit' ? 'orange' : 'red' );
+        echo '<p><strong>Status:</strong> <span style="color:' . esc_attr($color) . ';">' . esc_html($label) . '</span></p>';
+
+        // Approve & Send (existing functionality)
         $approve_url = admin_url('admin-post.php?action=hbi_approve_invoice&invoice_id=' . $post->ID . '&_wpnonce=' . wp_create_nonce('hbi_approve_invoice_' . $post->ID));
         echo '<p><a href="' . esc_url($approve_url) . '" class="button button-primary">Approve &amp; Send Invoice</a></p>';
-
-        // Resend Invoice
-        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:10px;">';
-        wp_nonce_field( 'hbi_resend_invoice_' . $post->ID, 'hbi_nonce' );
-        echo '<input type="hidden" name="action" value="hbi_resend_invoice">';
-        echo '<input type="hidden" name="invoice_id" value="' . intval( $post->ID ) . '">';
-        submit_button( 'Resend Invoice', 'secondary', 'submit', false );
-        echo '</form>';
     }
 
-    /**
-     * Render Admin Notes Metabox (with inline AJAX saving)
-     */
+    /******************************
+     * Admin Notes metabox (AJAX save)
+     ******************************/
     public function render_admin_notes_metabox( $post ) {
         $notes = get_post_meta( $post->ID, '_hbi_admin_notes', true );
         $nonce = wp_create_nonce( 'hbi_admin_notes_save_' . $post->ID );
@@ -262,9 +321,6 @@ class HBI_Admin {
         <?php
     }
 
-    /**
-     * AJAX handler: save admin notes
-     */
     public function ajax_save_admin_notes() {
         if ( ! current_user_can( 'edit_posts' ) ) {
             wp_send_json_error( 'Insufficient permissions.' );
@@ -291,9 +347,9 @@ class HBI_Admin {
         wp_send_json_success( 'Saved at ' . $time );
     }
 
-    /**
-     * Remove editor & publish box on invoice edit screen
-     */
+    /******************************
+     * Cleanup edit screen (remove editor & publish)
+     ******************************/
     public function cleanup_invoice_edit_screen() {
         // Remove the content editor from the invoice post type
         remove_post_type_support( 'hbi_invoice', 'editor' );
@@ -301,41 +357,136 @@ class HBI_Admin {
         remove_meta_box( 'submitdiv', 'hbi_invoice', 'side' );
     }
 
-    /**
-     * Resend invoice (same number, new PDF, notify customer)
-     */
-    public function resend_invoice_action() {
-        if ( ! isset( $_POST['invoice_id'], $_POST['hbi_nonce'] ) ) {
-            wp_die( 'Invalid request' );
+    /******************************
+     * List table: add columns
+     ******************************/
+    public function add_invoice_columns( $columns ) {
+        $new = [];
+        foreach ( $columns as $key => $label ) {
+            $new[$key] = $label;
+            if ( $key === 'title' ) {
+                // Insert our columns after Title
+                $new['hbi_status']      = 'Status';
+                $new['hbi_start_date']  = 'Event Start Date';
+                $new['hbi_submitted']   = 'Submitted On';
+            }
         }
-        $invoice_id = intval( $_POST['invoice_id'] );
-        if ( ! wp_verify_nonce( $_POST['hbi_nonce'], 'hbi_resend_invoice_' . $invoice_id ) ) {
-            wp_die( 'Security check failed' );
-        }
-
-        // Regenerate PDF
-        $pdf_url = HBI_Invoices::generate_pdf( $invoice_id );
-        update_post_meta( $invoice_id, '_hbi_pdf_url', $pdf_url );
-
-        // Email customer about updated invoice
-        $invoice_number = get_post_meta( $invoice_id, '_hbi_invoice_number', true );
-        $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
-        $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
-        $pdf_path = get_post_meta( $invoice_id, '_hbi_pdf_path', true );
-        $attachments = [];
-        if ( ! empty( $pdf_path ) && file_exists( $pdf_path ) ) {
-            $attachments[] = $pdf_path;
-        }
-        $subject = 'Sandbaai Hall — Invoice #' . $invoice_number;
-        $message = '<p>Dear ' . esc_html( $customer_name ) . ',</p>';
-        $message .= '<p>This invoice has been updated. Please find the current version attached. Payment instructions are on the invoice.</p>';
-        $headers = array('Content-Type: text/html; charset=UTF-8');
-        wp_mail($customer_email, $subject, $message, $headers, $attachments);
-
-        wp_redirect( admin_url( 'post.php?post=' . $invoice_id . '&action=edit&hbi_message=resend' ) );
-        exit;
+        return $new;
     }
-}
 
-// instantiate
+    public function render_invoice_columns( $column, $post_id ) {
+        if ( $column === 'hbi_status' ) {
+            $status = get_post_meta( $post_id, '_hbi_status', true );
+            $status = $status ?: 'unpaid';
+            // Output a badge span with data-status for JS
+            $class = 'hbi-status-' . esc_attr( $status );
+            echo '<span class="hbi-invoice-status hbi-status-badge ' . $class . '" data-status="' . esc_attr($status) . '">' . esc_html( ucfirst( $status ) ) . '</span>';
+        }
+
+        if ( $column === 'hbi_start_date' ) {
+            $start = get_post_meta( $post_id, '_hbi_start_date', true );
+            if ( $start ) {
+                echo esc_html( date_i18n( 'D, j M Y', strtotime( $start ) ) );
+            } else {
+                echo '—';
+            }
+        }
+
+        if ( $column === 'hbi_submitted' ) {
+            $post = get_post( $post_id );
+            if ( $post ) {
+                echo esc_html( date_i18n( 'D, j M Y', strtotime( $post->post_date ) ) );
+            } else {
+                echo '—';
+            }
+        }
+    }
+
+    /******************************
+     * Quick Edit UI (status)
+     ******************************/
+    public function quick_edit_custom_box( $column, $post_type ) {
+        if ( $post_type !== 'hbi_invoice' || $column !== 'hbi_status' ) return;
+        ?>
+        <fieldset class="inline-edit-col-right">
+            <div class="inline-edit-col">
+                <label>
+                    <span class="title"><?php _e( 'Invoice Status', 'hbi-events' ); ?></span>
+                    <select name="hbi_status">
+                        <option value="unpaid"><?php _e( 'Unpaid', 'hbi-events' ); ?></option>
+                        <option value="deposit"><?php _e( 'Deposit', 'hbi-events' ); ?></option>
+                        <option value="paid"><?php _e( 'Paid', 'hbi-events' ); ?></option>
+                    </select>
+                </label>
+            </div>
+        </fieldset>
+        <?php
+    }
+
+    public function quick_edit_javascript() {
+        global $current_screen;
+        if ( ! isset( $current_screen ) || $current_screen->post_type !== 'hbi_invoice' ) return;
+        ?>
+        <script>
+        jQuery(function($){
+            // Extend inline edit to populate our status select
+            var $wp_inline_edit = inlineEditPost.edit;
+            inlineEditPost.edit = function( id ) {
+                $wp_inline_edit.apply( this, arguments );
+                var postId = 0;
+                if ( typeof(id) == 'object' ) { postId = parseInt(this.getId(id)); }
+                if ( postId > 0 ) {
+                    var $editRow = $('#edit-' + postId);
+                    var $postRow = $('#post-' + postId);
+                    var status = null;
+                    // Try to read data-status from a child element (we render data-status on the span)
+                    var child = $postRow.find('.hbi-invoice-status[data-status]');
+                    if ( child.length ) {
+                        status = child.data('status');
+                    } else {
+                        // fallback: try to parse text
+                        var txt = $postRow.find('.column-hbi_status').text().trim().toLowerCase();
+                        if (txt) status = txt;
+                    }
+                    if ( status && $editRow.find('select[name="hbi_status"]').length ) {
+                        $editRow.find('select[name="hbi_status"]').val(status);
+                    }
+                }
+            };
+        });
+        </script>
+        <?php
+    }
+
+    public function save_quick_edit( $post_id ) {
+        if ( defined('DOING_AUTOSAVE') && DOING_AUTOSAVE ) return;
+        if ( ! current_user_can( 'edit_post', $post_id ) ) return;
+        if ( isset( $_POST['hbi_status'] ) ) {
+            $status = sanitize_text_field( $_POST['hbi_status'] );
+            if ( in_array( $status, ['unpaid','deposit','paid'], true ) ) {
+                update_post_meta( $post_id, '_hbi_status', $status );
+            }
+        }
+    }
+
+    /******************************
+     * Admin inline CSS for badges
+     ******************************/
+    public function admin_inline_css() {
+        echo '<style>
+            .hbi-status-badge{display:inline-block;padding:3px 9px;border-radius:999px;color:#fff;font-weight:600;font-size:12px;line-height:1}
+            .hbi-status-unpaid{background:#e74c3c}
+            .hbi-status-deposit{background:#f39c12}
+            .hbi-status-paid{background:#28a745}
+            .column-hbi_start_date{width:12%}
+            .column-hbi_status{width:12%}
+            .column-hbi_submitted{width:12%}
+        </style>';
+    }
+
+} // end class HBI_Admin
+
+// instantiate only if we defined it here
 new HBI_Admin();
+
+} // end if class_exists()
