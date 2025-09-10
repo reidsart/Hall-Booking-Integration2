@@ -17,6 +17,7 @@ class HBI_Invoices {
         add_action( 'add_meta_boxes', array( $this, 'register_invoice_meta_boxes' ) );
         add_action( 'save_post_hbi_invoice', array( $this, 'save_invoice_details' ) );
         add_action( 'wp_ajax_hbi_save_invoice', array( $this, 'ajax_save_invoice' ) );
+        add_action('admin_post_hbi_mark_invoice_paid', array($this, 'handle_mark_invoice_paid'));
     }
 
     public function register_invoice_meta_boxes() {
@@ -37,6 +38,57 @@ class HBI_Invoices {
             'side',
             'low'
         );
+        
+        add_meta_box(
+            'hbi_invoice_paid',
+            'Invoice Payment',
+            array($this, 'render_invoice_paid_box'),
+            'hbi_invoice',
+            'side',
+            'low'
+        );
+    }
+    public function handle_mark_invoice_paid() {
+        if (empty($_POST['invoice_id']) || !isset($_POST['_wpnonce'])) {
+            wp_die('Invalid request.');
+        }
+        $invoice_id = intval($_POST['invoice_id']);
+        if (!wp_verify_nonce($_POST['_wpnonce'], 'hbi_mark_invoice_paid_' . $invoice_id)) {
+            wp_die('Nonce check failed.');
+        }
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions.');
+        }
+
+                $status = isset($_POST['status']) ? sanitize_text_field($_POST['status']) : 'paid';
+        if (! in_array($status, array('unpaid','deposit','paid')) ) {
+            $status = 'paid';
+        }
+
+        // Update unified meta key used throughout plugin
+        update_post_meta($invoice_id, '_hbi_status', $status);
+        // Keep legacy meta as well
+        update_post_meta($invoice_id, '_hbi_invoice_status', $status);
+        update_post_meta($invoice_id, '_hbi_invoice_paid_date', current_time('mysql'));
+
+        // Email manager
+        $subject = "Invoice #{$invoice_id} marked as PAID";
+        $message = "Invoice #{$invoice_id} has been marked as paid.\nView in admin: " . admin_url("post.php?post={$invoice_id}&action=edit");
+        wp_mail('manager@sandbaaihall.co.za', $subject, $message);
+
+        // Check if invoice had Bar Service
+        $items = get_post_meta($invoice_id, '_hbi_items', true);
+        if (is_array($items)) {
+            foreach ($items as $it) {
+                if (stripos($it['label'], 'Bar Service') !== false) {
+                    wp_mail('bar@sandbaaihall.co.za', "Bar Service requested — Invoice #{$invoice_id}", $message);
+                    break;
+                }
+            }
+        }
+
+        wp_safe_redirect(admin_url("post.php?post={$invoice_id}&action=edit&marked_paid=1"));
+        exit;
     }
 
     /**
@@ -784,7 +836,7 @@ if ($time_display) {
         }
         update_post_meta( $invoice_id, '_hbi_pdf_url', $pdf_url );
         update_post_meta( $invoice_id, '_hbi_pdf_generated', current_time('mysql') );
-        update_post_meta( $invoice_id, '_hbi_invoice_status', 'sent' );
+        update_post_meta( $invoice_id, '_hbi_status', 'sent' );
 
         $customer_email = get_post_meta( $invoice_id, '_hbi_customer_email', true );
         $customer_name  = get_post_meta( $invoice_id, '_hbi_customer_name', true );
@@ -804,5 +856,30 @@ if ($time_display) {
         wp_mail( $customer_email, $subject, $message, $headers, $attachments );
         wp_redirect( admin_url( 'post.php?post=' . $invoice_id . '&action=edit&hbi_msg=sent' ) );
         exit;
+    }
+    public function render_invoice_paid_box($post) {
+        $status = get_post_meta($post->ID, '_hbi_status', true) ?: 'unpaid';
+        $nonce  = wp_create_nonce('hbi_mark_invoice_paid_' . $post->ID);
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        echo '<input type="hidden" name="action" value="hbi_mark_invoice_paid">';
+        echo '<input type="hidden" name="invoice_id" value="' . intval($post->ID) . '">';
+        echo '<input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '">';
+        echo '<label for="hbi_paid_status_select_' . intval($post->ID) . '"><strong>Invoice Status</strong></label><br/>';
+        echo '<select id="hbi_paid_status_select_' . intval($post->ID) . '" name="status">';
+
+        $opts = array(
+            'unpaid'  => 'Unpaid',
+            'deposit' => 'Deposit',
+            'paid'    => 'Paid'
+        );
+        foreach ($opts as $val => $label) {
+            $sel = selected($status, $val, false);
+            echo '<option value="' . esc_attr($val) . '" ' . $sel . '>' . esc_html($label) . '</option>';
+        }
+
+        echo '</select> ';
+        echo '<button type="submit" class="button button-primary" style="margin-left:8px;">Update Status</button>';
+        echo '</form>';
     }
 }
