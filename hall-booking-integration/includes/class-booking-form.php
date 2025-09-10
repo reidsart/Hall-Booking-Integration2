@@ -221,8 +221,12 @@ class HBI_Booking_Form {
                                             </td>
 <td>
     <?php if ($is_spotlight_sound || $is_kitchen): ?>
-        <span class="static-qty-display">0</span>
-    <?php elseif (stripos($label, 'bar service') !== false): ?>
+    <span class="static-qty-display">0</span>
+    <input type="hidden" 
+        name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]" 
+        value="0" 
+        class="tariff-qty checkbox-qty">
+<?php elseif (stripos($label, 'bar service') !== false): ?>
         <span class="bar-display">No</span>
         <input type="hidden" name="hbi_quantity[<?php echo esc_attr($category); ?>][<?php echo esc_attr($label); ?>]" value="0" class="tariff-qty bar-qty">
     <?php else: ?>
@@ -284,6 +288,26 @@ jQuery(function($){
         // also restrict end date if present
         $('input[name="hbi_end_date"]').attr('min', min);
     })();
+
+    // 2) sync checkboxes with hidden qty inputs (Spotlights & Sound, Kitchen Hire)
+    $(document).on('change', '.tariff-item', function(){
+        var $row = $(this).closest('tr');
+        var $qty = $row.find('.checkbox-qty');
+        if ($(this).is(':checked')) {
+            if ($qty.length) {
+                $qty.val(1);
+                $row.find('.static-qty-display').text('1');
+            }
+        } else {
+            if ($qty.length) {
+                $qty.val(0);
+                $row.find('.static-qty-display').text('0');
+            }
+        }
+        if (typeof recalcTotal === "function") {
+            recalcTotal(); // update totals if your calculator exists
+        }
+    });
 });
 </script>
             
